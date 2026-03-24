@@ -1,0 +1,23 @@
+{
+  "name": "graphpilot",
+  "version": "0.1.0",
+  "description": "Visual project planning in Obsidian with Claude Code dispatch",
+  "type": "module",
+  "bin": {
+    "gp": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "link": "npm run build && npm link"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "yaml": "^2.4.1",
+    "glob": "^10.3.10"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
