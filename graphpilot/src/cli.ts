@@ -20,6 +20,7 @@ import {
 import { assembleContext } from "./context.js";
 import { toMermaid, toAsciiTree } from "./graph.js";
 import { type NodeType, type GpConfig, DEFAULT_CONFIG } from "./schema.js";
+import { gpDispatch, gpSyncChild, gpCollapse } from "./dispatch.js";
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -373,6 +374,27 @@ async function cmdComplete(args: string[]) {
   }
 }
 
+async function cmdDispatch(args: string[]) {
+  const { vaultRoot } = requireConfig();
+  const { positional, flags } = parseFlags(args);
+  const nodeId = positional[0];
+  const parentTaskId = flags.plan?.[0];
+
+  if (!nodeId || !parentTaskId) {
+    die("Usage: gp dispatch <node-id> --plan <parent-task-id>");
+  }
+
+  try {
+    const result = await gpDispatch(vaultRoot, nodeId, parentTaskId);
+    ok(`Dispatched: created ${result.created.length} child nodes`);
+    for (const id of result.created) {
+      info(`  → ${id}`);
+    }
+  } catch (err: unknown) {
+    die(err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function cmdDesign(args: string[]) {
   const { config, vaultRoot } = requireConfig();
   const { flags } = parseFlags(args);
@@ -473,6 +495,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   graph: cmdGraph,
   launch: cmdLaunch,
   complete: cmdComplete,
+  dispatch: cmdDispatch,
   design: cmdDesign,
 };
 
