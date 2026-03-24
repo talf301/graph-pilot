@@ -40,6 +40,7 @@ export function toMermaid(nodes: GraphNode[]): string {
   lines.push("    classDef designing fill:#dbeafe,stroke:#3b82f6");
   lines.push("    classDef ready fill:#fef3c7,stroke:#f59e0b");
   lines.push("    classDef inprogress fill:#ddd6fe,stroke:#8b5cf6");
+  lines.push("    classDef dispatching fill:#e0e7ff,stroke:#6366f1");
   lines.push("    classDef done fill:#d1fae5,stroke:#10b981");
   lines.push("    classDef blocked fill:#fee2e2,stroke:#ef4444");
 
@@ -68,7 +69,7 @@ export function toAsciiTree(nodes: GraphNode[]): string {
     designing: "◐",
     ready: "◑",
     "in-progress": "◕",
-    dispatching: "⇢",
+    dispatching: "⊙",
     done: "●",
     blocked: "✗",
   };
@@ -126,6 +127,8 @@ function shapeFor(node: GraphNode): { open: string; close: string } {
       return { open: "(", close: ")" }; // rounded
     case "spike":
       return { open: "{{", close: "}}" }; // diamond-ish
+    case "dispatch-task":
+      return { open: ">", close: "]" }; // asymmetric flag
     default:
       return { open: "[", close: "]" };
   }

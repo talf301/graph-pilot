@@ -154,8 +154,8 @@ async function cmdCreate(args: string[]) {
     die("Usage: gp create <type> <id> [title] --project <name> [--parent [[ref]]] [--dep [[ref]]]");
   }
 
-  if (!["epic", "feature", "task", "spike"].includes(type)) {
-    die(`Unknown type: ${type}. Use epic, feature, task, or spike.`);
+  if (!["epic", "feature", "task", "spike", "dispatch-task"].includes(type)) {
+    die(`Unknown type: ${type}. Use epic, feature, task, spike, or dispatch-task.`);
   }
 
   // Resolve project — use flag, or infer if only one project exists
@@ -236,6 +236,24 @@ async function cmdStatus(args: string[]) {
       console.log("    \x1b[35mactive:\x1b[0m");
       for (const node of active) {
         console.log(`      🔄 ${node.meta.id}`);
+      }
+    }
+
+    // Dispatching
+    const dispatching = projectNodes.filter((n) => n.meta.status === "dispatching");
+    if (dispatching.length > 0) {
+      console.log("    \x1b[34mdispatching:\x1b[0m");
+      for (const node of dispatching) {
+        const childCount = projectNodes.filter(
+          (c) => c.meta.type === "dispatch-task" && c.meta.parent?.includes(node.meta.id)
+        ).length;
+        const doneCount = projectNodes.filter(
+          (c) =>
+            c.meta.type === "dispatch-task" &&
+            c.meta.parent?.includes(node.meta.id) &&
+            c.meta.status === "done"
+        ).length;
+        console.log(`      ⊙ ${node.meta.id} (${doneCount}/${childCount} tasks done)`);
       }
     }
   }
@@ -553,6 +571,11 @@ if (!command || command === "help" || command === "--help") {
   \x1b[36mExecution:\x1b[0m
     launch <node-id>                              Start Claude Code session for a node
     complete <node-id> [--pr url] [--commit sha]  Mark done, attach artifacts
+
+  \x1b[36mDispatch Integration:\x1b[0m
+    dispatch <node-id> --plan <task-id>           Wire dispatch plan to GP graph
+    sync-child <dispatch-task-id>                 Update child node on completion (hook)
+    collapse <node-id> [--force]                  Clean up dispatch children, summarize
 
   \x1b[36mVisibility:\x1b[0m
     status [--project <name>]                     Show what's ready / active / done
