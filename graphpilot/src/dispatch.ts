@@ -6,6 +6,7 @@ import {
   type NodeFrontmatter,
   type NodeStatus,
   type NodeType,
+  parseWikilink,
 } from "./schema.js";
 import { writeNode, loadAllNodes, indexById, resolveRef } from "./vault.js";
 
@@ -133,22 +134,123 @@ export async function gpDispatch(
 }
 
 /**
- * Stub — implemented in Task 5.
+ * Called by Dispatch's completion hook. Updates a single child node's status.
+ *
+ * 1. Find the dispatch-task node with matching dispatch-task-id
+ * 2. Set status to done
+ * 3. Read worker summary from dispatch notes
+ * 4. Write summary to dispatch-summary field
+ *
+ * Exits silently if node not found (never break Dispatch).
  */
 export async function gpSyncChild(
   vaultRoot: string,
   dispatchTaskId: string
 ): Promise<void> {
-  throw new Error("Not yet implemented");
+  const nodes = await loadAllNodes(vaultRoot);
+  const target = nodes.find(
+    (n) => n.meta["dispatch-task-id"] === dispatchTaskId
+  );
+
+  // If node not found, exit silently — don't break Dispatch
+  if (!target) return;
+
+  // Update status
+  target.meta.status = "done" as NodeStatus;
+
+  // Try to read worker summary from dispatch
+  try {
+    const taskData = dtExec(`show ${dispatchTaskId} --json`) as {
+      notes?: Array<{ author: string; content: string }>;
+    };
+    const summaryNote = taskData.notes?.find(
+      (n) => n.author === "worker" && n.content.startsWith("summary:")
+    );
+    if (summaryNote) {
+      target.meta["dispatch-summary"] = summaryNote.content
+        .replace(/^summary:\s*/, "")
+        .trim();
+    }
+  } catch {
+    // Non-fatal: summary stays null
+  }
+
+  writeNode(target);
 }
 
 /**
- * Stub — implemented in Task 6.
+ * Clean up dispatch child nodes and write a compact summary to the parent.
+ *
+ * 1. Load parent and all dispatch-task children
+ * 2. Verify all children done (abort if not, unless --force)
+ * 3. Build summary section from children
+ * 4. Append summary to parent body
+ * 5. Delete child node files
+ * 6. Set parent status to done
  */
 export async function gpCollapse(
   vaultRoot: string,
   nodeId: string,
   force: boolean
 ): Promise<void> {
-  throw new Error("Not yet implemented");
+  const nodes = await loadAllNodes(vaultRoot);
+  const index = indexById(nodes);
+  const parent = resolveRef(nodeId, index);
+
+  if (!parent) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+
+  if (parent.meta.status !== "dispatching") {
+    throw new Error(
+      `Node ${nodeId} is not in dispatching status (current: ${parent.meta.status})`
+    );
+  }
+
+  // Find all dispatch-task children of this parent
+  const children = nodes.filter(
+    (n) =>
+      n.meta.type === ("dispatch-task" as NodeType) &&
+      n.meta.parent !== null &&
+      (n.meta.parent.includes(parent.meta.id) ||
+        parseWikilink(n.meta.parent) === parent.meta.id)
+  );
+
+  if (children.length === 0) {
+    throw new Error(`No dispatch-task children found for ${nodeId}`);
+  }
+
+  // Check all children are done
+  const notDone = children.filter((c) => c.meta.status !== "done");
+  if (notDone.length > 0 && !force) {
+    const ids = notDone.map((c) => c.meta.id).join(", ");
+    throw new Error(
+      `${notDone.length} children not done: ${ids}\nUse --force to override.`
+    );
+  }
+
+  // Build summary section
+  const parentTaskId = parent.meta.artifacts["dispatch-run"] ?? "unknown";
+  const summaryLines: string[] = [];
+  summaryLines.push(`\n## Dispatch Run (dt-${parentTaskId})`);
+  for (const child of children) {
+    const taskId = child.meta["dispatch-task-id"] ?? "?";
+    const summary = child.meta["dispatch-summary"] ?? "no summary";
+    summaryLines.push(`- ${child.meta.id} (dt-${taskId}): ${summary}`);
+  }
+  // Add PR if parent has one
+  if (parent.meta.artifacts.prs.length > 0) {
+    summaryLines.push(`PR: ${parent.meta.artifacts.prs[0]}`);
+  }
+  summaryLines.push("");
+
+  // Append summary to parent body
+  parent.body += summaryLines.join("\n");
+  parent.meta.status = "done" as NodeStatus;
+  writeNode(parent);
+
+  // Delete child node files
+  for (const child of children) {
+    fs.unlinkSync(child.filepath);
+  }
 }

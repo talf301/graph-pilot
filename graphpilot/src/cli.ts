@@ -395,6 +395,40 @@ async function cmdDispatch(args: string[]) {
   }
 }
 
+async function cmdSyncChild(args: string[]) {
+  const { vaultRoot } = requireConfig();
+  const dispatchTaskId = args[0];
+
+  if (!dispatchTaskId) {
+    die("Usage: gp sync-child <dispatch-task-id>");
+  }
+
+  try {
+    await gpSyncChild(vaultRoot, dispatchTaskId);
+    // Silent success — this is called by dispatch hook
+  } catch {
+    // Exit silently — never break Dispatch
+    process.exit(0);
+  }
+}
+
+async function cmdCollapse(args: string[]) {
+  const { vaultRoot } = requireConfig();
+  const nodeId = args[0];
+  const force = args.includes("--force");
+
+  if (!nodeId) {
+    die("Usage: gp collapse <node-id> [--force]");
+  }
+
+  try {
+    await gpCollapse(vaultRoot, nodeId, force);
+    ok(`Collapsed dispatch children for: ${nodeId}`);
+  } catch (err: unknown) {
+    die(err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function cmdDesign(args: string[]) {
   const { config, vaultRoot } = requireConfig();
   const { flags } = parseFlags(args);
@@ -496,6 +530,8 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   launch: cmdLaunch,
   complete: cmdComplete,
   dispatch: cmdDispatch,
+  "sync-child": cmdSyncChild,
+  collapse: cmdCollapse,
   design: cmdDesign,
 };
 
