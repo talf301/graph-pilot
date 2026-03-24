@@ -92,6 +92,7 @@ export function readNode(filepath: string): GraphNode | null {
     prs: artifacts.prs ?? [],
     specs: artifacts.specs ?? [],
     commits: artifacts.commits ?? [],
+    "dispatch-run": artifacts["dispatch-run"] ?? null,
   };
 
   return {

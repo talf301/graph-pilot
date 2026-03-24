@@ -68,6 +68,7 @@ export function toAsciiTree(nodes: GraphNode[]): string {
     designing: "◐",
     ready: "◑",
     "in-progress": "◕",
+    dispatching: "⇢",
     done: "●",
     blocked: "✗",
   };

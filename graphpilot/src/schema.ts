@@ -20,6 +20,7 @@ export const NodeType = {
   Feature: "feature",
   Task: "task",
   Spike: "spike",
+  DispatchTask: "dispatch-task",
 } as const;
 export type NodeType = (typeof NodeType)[keyof typeof NodeType];
 
@@ -28,6 +29,7 @@ export const NodeStatus = {
   Designing: "designing",
   Ready: "ready", // all deps met, spec written, can be launched
   InProgress: "in-progress",
+  Dispatching: "dispatching",
   Done: "done",
   Blocked: "blocked",
 } as const;
@@ -76,11 +78,19 @@ export interface NodeFrontmatter {
   /** Active Claude Code session id, or null */
   session: string | null;
 
+  /** Dispatch task ID — only on dispatch-task nodes */
+  "dispatch-task-id"?: string;
+
+  /** One-line outcome summary — filled by worker on completion */
+  "dispatch-summary"?: string | null;
+
   /** Attached artifacts that accumulate as work progresses */
   artifacts: {
     prs: string[];
     specs: string[];
     commits: string[];
+    /** Parent dispatch task ID, null if not dispatched */
+    "dispatch-run"?: string | null;
   };
 
   /** ISO date strings */
