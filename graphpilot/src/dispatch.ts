@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   type GraphNode,
   type NodeFrontmatter,
@@ -20,14 +20,15 @@ interface DispatchTask {
 
 /**
  * Run a dt command and parse JSON output.
+ * Uses execFileSync to avoid shell injection.
  */
-function dtExec(args: string): unknown {
+function dtExec(args: string[]): unknown {
   try {
-    const out = execSync(`dt ${args}`, { encoding: "utf-8", timeout: 15000 });
+    const out = execFileSync("dt", args, { encoding: "utf-8", timeout: 15000 });
     return JSON.parse(out);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`dt command failed: dt ${args}\n${msg}`);
+    throw new Error(`dt command failed: dt ${args.join(" ")}\n${msg}`);
   }
 }
 
@@ -63,7 +64,7 @@ export async function gpDispatch(
   }
 
   // Query dispatch for the parent task and its children
-  const parentTask = dtExec(`show ${parentTaskId} --json`) as DispatchTask;
+  const parentTask = dtExec(["show", parentTaskId, "--json"]) as DispatchTask;
 
   if (!parentTask.children || parentTask.children.length === 0) {
     throw new Error(
@@ -82,7 +83,7 @@ export async function gpDispatch(
   const today = new Date().toISOString().slice(0, 10);
 
   for (const child of parentTask.children) {
-    const childId = slugify(child.title);
+    const childId = `${slugify(child.title)}-${child.id}`;
     const filepath = path.join(dispatchDir, `${childId}.md`);
 
     const meta: NodeFrontmatter = {
@@ -116,7 +117,7 @@ export async function gpDispatch(
     // Append GP integration instructions to the dispatch task
     try {
       const note = `When done, write a one-line summary of what you implemented:\ndt note ${child.id} "summary: <one line description>" --author worker`;
-      execSync(`dt note ${child.id} "${note}" --author system`, {
+      execFileSync("dt", ["note", child.id, note, "--author", "system"], {
         encoding: "utf-8",
         timeout: 10000,
       });
@@ -160,7 +161,7 @@ export async function gpSyncChild(
 
   // Try to read worker summary from dispatch
   try {
-    const taskData = dtExec(`show ${dispatchTaskId} --json`) as {
+    const taskData = dtExec(["show", dispatchTaskId, "--json"]) as {
       notes?: Array<{ author: string; content: string }>;
     };
     const summaryNote = taskData.notes?.find(
@@ -212,8 +213,7 @@ export async function gpCollapse(
     (n) =>
       n.meta.type === ("dispatch-task" as NodeType) &&
       n.meta.parent !== null &&
-      (n.meta.parent.includes(parent.meta.id) ||
-        parseWikilink(n.meta.parent) === parent.meta.id)
+      parseWikilink(n.meta.parent) === parent.meta.id
   );
 
   if (children.length === 0) {

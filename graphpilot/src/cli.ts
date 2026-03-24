@@ -19,7 +19,7 @@ import {
 } from "./vault.js";
 import { assembleContext } from "./context.js";
 import { toMermaid, toAsciiTree } from "./graph.js";
-import { type NodeType, type GpConfig, DEFAULT_CONFIG } from "./schema.js";
+import { type NodeType, type GpConfig, DEFAULT_CONFIG, parseWikilink } from "./schema.js";
 import { gpDispatch, gpSyncChild, gpCollapse } from "./dispatch.js";
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -245,12 +245,13 @@ async function cmdStatus(args: string[]) {
       console.log("    \x1b[34mdispatching:\x1b[0m");
       for (const node of dispatching) {
         const childCount = projectNodes.filter(
-          (c) => c.meta.type === "dispatch-task" && c.meta.parent?.includes(node.meta.id)
+          (c) => c.meta.type === "dispatch-task" && c.meta.parent != null && parseWikilink(c.meta.parent) === node.meta.id
         ).length;
         const doneCount = projectNodes.filter(
           (c) =>
             c.meta.type === "dispatch-task" &&
-            c.meta.parent?.includes(node.meta.id) &&
+            c.meta.parent != null &&
+            parseWikilink(c.meta.parent) === node.meta.id &&
             c.meta.status === "done"
         ).length;
         console.log(`      ⊙ ${node.meta.id} (${doneCount}/${childCount} tasks done)`);
