@@ -106,7 +106,7 @@ Dispatching and in-progress share purple (both represent active work). The statu
 Obsidian Canvas edges don't support a native dashed/solid style property. To distinguish edge types visually:
 
 - **Parent-child** (parent → child): unlabeled edges, default color, `fromSide: "bottom"`, `toSide: "top"`
-- **Depends-on** (dependency → dependent): labeled `"depends-on"`, orange color (`"2"`), `fromSide: "right"`, `toSide: "left"` (horizontal routing to contrast with vertical parent edges)
+- **Depends-on**: labeled `"depends-on"`, orange color (`"2"`), `fromSide: "right"`, `toSide: "left"` (horizontal routing to contrast with vertical parent edges). Direction: if node A has `depends-on: ["[[B]]"]`, the edge goes `fromNode: B` → `toNode: A` (arrow points toward the dependent).
 
 ## Layout Algorithm
 
@@ -140,7 +140,7 @@ Inside each cluster:
 - Clusters arranged in a grid (e.g., 3 columns)
 - Epic nodes positioned above their feature clusters, spanning their width
 - Padding between clusters for readability and edge routing
-- Cross-dependency edges (dashed) route between clusters
+- Cross-dependency edges (orange, labeled "depends-on") route between clusters
 
 ### Overview canvas additions
 
