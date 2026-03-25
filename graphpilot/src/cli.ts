@@ -18,7 +18,7 @@ import {
   createNode,
 } from "./vault.js";
 import { assembleContext } from "./context.js";
-import { toMermaid, toAsciiTree } from "./graph.js";
+import { toMermaid, toAsciiTree, toCanvas, toOverviewCanvas } from "./graph.js";
 import { type NodeType, type GpConfig, DEFAULT_CONFIG, parseWikilink } from "./schema.js";
 import { gpDispatch, gpSyncChild, gpCollapse } from "./dispatch.js";
 
@@ -185,6 +185,7 @@ async function cmdCreate(args: string[]) {
   });
 
   ok(`Created ${type}: ${path.relative(vaultRoot, node.filepath)}`);
+  await regenerateCanvas(vaultRoot, config, project);
 }
 
 async function cmdStatus(args: string[]) {
@@ -277,6 +278,57 @@ async function cmdGraph(args: string[]) {
   }
 }
 
+async function cmdCanvas(args: string[]) {
+  const { config, vaultRoot } = requireConfig();
+  const { flags } = parseFlags(args);
+  const isAll = args.includes("--all");
+  const projectFilter = flags.project?.[0];
+
+  const nodes = await loadAllNodes(vaultRoot, { project: isAll ? undefined : projectFilter });
+
+  if (isAll) {
+    const canvasJson = toOverviewCanvas(nodes, vaultRoot);
+    const outPath = path.join(vaultRoot, "overview.canvas");
+    fs.writeFileSync(outPath, canvasJson, "utf-8");
+    ok(`Generated overview canvas: ${path.relative(vaultRoot, outPath)}`);
+  } else {
+    // Resolve project
+    let project = projectFilter;
+    const projectNames = Object.keys(config.projects);
+    if (!project) {
+      if (projectNames.length === 1) {
+        project = projectNames[0];
+      } else if (projectNames.length === 0) {
+        die("No projects registered.");
+      } else {
+        die(`Multiple projects exist. Specify with --project: ${projectNames.join(", ")}`);
+      }
+    }
+    if (!config.projects[project]) {
+      die(`Unknown project: ${project}`);
+    }
+
+    const projectNodes = nodes.filter(n => n.meta.project === project);
+    const canvasJson = toCanvas(projectNodes, vaultRoot);
+    const outPath = path.join(vaultRoot, config.root, project, `${project}.canvas`);
+    fs.writeFileSync(outPath, canvasJson, "utf-8");
+    ok(`Generated canvas: ${path.relative(vaultRoot, outPath)}`);
+  }
+}
+
+async function regenerateCanvas(vaultRoot: string, config: GpConfig, project?: string) {
+  try {
+    if (project) {
+      const nodes = await loadAllNodes(vaultRoot, { project });
+      const canvasJson = toCanvas(nodes, vaultRoot);
+      const outPath = path.join(vaultRoot, config.root, project, `${project}.canvas`);
+      fs.writeFileSync(outPath, canvasJson, "utf-8");
+    }
+  } catch {
+    // Canvas regen is best-effort, never break the main command
+  }
+}
+
 async function cmdLaunch(args: string[]) {
   const { config, vaultRoot } = requireConfig();
   const nodeId = args[0];
@@ -314,7 +366,7 @@ async function cmdLaunch(args: string[]) {
 
   // Launch claude interactively with the context as initial prompt
   // Use --initial-prompt if available, otherwise pipe to stdin
-  const child = spawn("claude", ["--initial-prompt", prompt], {
+  const child = spawn("claude", ["--dangerously-skip-permissions", "--initial-prompt", prompt], {
     cwd: projectRoot,
     stdio: "inherit",
     env: {
@@ -328,7 +380,7 @@ async function cmdLaunch(args: string[]) {
   child.on("error", () => {
     // Fallback: pipe prompt to stdin
     info("(Falling back to stdin prompt)");
-    const fallback = spawn("claude", [], {
+    const fallback = spawn("claude", ["--dangerously-skip-permissions"], {
       cwd: projectRoot,
       stdio: ["pipe", "inherit", "inherit"],
       env: {
@@ -347,7 +399,7 @@ async function cmdLaunch(args: string[]) {
 }
 
 async function cmdComplete(args: string[]) {
-  const { vaultRoot } = requireConfig();
+  const { config, vaultRoot } = requireConfig();
   const { positional, flags } = parseFlags(args);
   const nodeId = positional[0];
 
@@ -391,10 +443,11 @@ async function cmdComplete(args: string[]) {
       ok(`Unblocked: ${node.meta.id} → ready`);
     }
   }
+  await regenerateCanvas(vaultRoot, config, target.meta.project);
 }
 
 async function cmdDispatch(args: string[]) {
-  const { vaultRoot } = requireConfig();
+  const { config, vaultRoot } = requireConfig();
   const { positional, flags } = parseFlags(args);
   const nodeId = positional[0];
   const parentTaskId = flags.plan?.[0];
@@ -409,13 +462,16 @@ async function cmdDispatch(args: string[]) {
     for (const id of result.created) {
       info(`  → ${id}`);
     }
+    const nodes = await loadAllNodes(vaultRoot);
+    const dispatchedNode = nodes.find(n => n.meta.id === nodeId);
+    if (dispatchedNode) await regenerateCanvas(vaultRoot, config, dispatchedNode.meta.project);
   } catch (err: unknown) {
     die(err instanceof Error ? err.message : String(err));
   }
 }
 
 async function cmdSyncChild(args: string[]) {
-  const { vaultRoot } = requireConfig();
+  const { config, vaultRoot } = requireConfig();
   const dispatchTaskId = args[0];
 
   if (!dispatchTaskId) {
@@ -425,6 +481,9 @@ async function cmdSyncChild(args: string[]) {
   try {
     await gpSyncChild(vaultRoot, dispatchTaskId);
     // Silent success — this is called by dispatch hook
+    const nodes = await loadAllNodes(vaultRoot);
+    const syncedNode = nodes.find(n => n.meta.id === dispatchTaskId);
+    if (syncedNode) await regenerateCanvas(vaultRoot, config, syncedNode.meta.project);
   } catch {
     // Exit silently — never break Dispatch
     process.exit(0);
@@ -432,7 +491,7 @@ async function cmdSyncChild(args: string[]) {
 }
 
 async function cmdCollapse(args: string[]) {
-  const { vaultRoot } = requireConfig();
+  const { config, vaultRoot } = requireConfig();
   const nodeId = args[0];
   const force = args.includes("--force");
 
@@ -443,6 +502,9 @@ async function cmdCollapse(args: string[]) {
   try {
     await gpCollapse(vaultRoot, nodeId, force);
     ok(`Collapsed dispatch children for: ${nodeId}`);
+    const nodes = await loadAllNodes(vaultRoot);
+    const collapsedNode = nodes.find(n => n.meta.id === nodeId);
+    if (collapsedNode) await regenerateCanvas(vaultRoot, config, collapsedNode.meta.project);
   } catch (err: unknown) {
     die(err instanceof Error ? err.message : String(err));
   }
@@ -488,6 +550,7 @@ async function cmdDesign(args: string[]) {
   lines.push("4. Fill in Intent, Design Notes, and Acceptance Criteria sections.");
   lines.push("5. Ask clarifying questions about scope and dependencies.");
   lines.push("6. You can also link to non-gp notes in the vault (research, references, etc.).");
+  lines.push("7. After modifying any nodes, run `gp canvas` to regenerate the visual canvas.");
   lines.push("");
   lines.push("### Frontmatter template:");
   lines.push("```yaml");
@@ -515,14 +578,22 @@ async function cmdDesign(args: string[]) {
 
   const prompt = lines.join("\n");
 
+  // Resolve working directory: use project root if a single project is targeted, otherwise vault root
+  let cwd = vaultRoot;
+  const resolvedProject = projectFilter ?? (Object.keys(config.projects).length === 1 ? Object.keys(config.projects)[0] : undefined);
+  if (resolvedProject && config.projects[resolvedProject]) {
+    cwd = path.resolve(config.projects[resolvedProject].root);
+  }
+
   info("Starting design session...");
   info(`Vault: ${vaultRoot} | ${nodes.length} existing nodes`);
+  info(`Working directory: ${cwd}`);
   if (projectFilter) info(`Filtered to project: ${projectFilter}`);
   console.log("");
 
-  // Launch claude with vault as cwd so it can create files
-  const child = spawn("claude", [], {
-    cwd: vaultRoot,
+  // Launch claude in the project root (for memories/CLAUDE.md) or vault root if multi-project
+  const child = spawn("claude", ["--dangerously-skip-permissions"], {
+    cwd,
     stdio: ["pipe", "inherit", "inherit"],
     env: {
       ...process.env,
@@ -552,6 +623,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   "sync-child": cmdSyncChild,
   collapse: cmdCollapse,
   design: cmdDesign,
+  canvas: cmdCanvas,
 };
 
 if (!command || command === "help" || command === "--help") {
@@ -581,6 +653,8 @@ if (!command || command === "help" || command === "--help") {
   \x1b[36mVisibility:\x1b[0m
     status [--project <name>]                     Show what's ready / active / done
     graph [--project <name>] [--mermaid]          Dependency graph
+    canvas [--project <name>]                     Generate Obsidian canvas
+    canvas --all                                  Generate overview canvas (all projects)
 
   \x1b[36mExample flow:\x1b[0m
     gp init ~/my-vault
