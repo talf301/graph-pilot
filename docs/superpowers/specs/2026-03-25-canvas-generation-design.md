@@ -103,8 +103,10 @@ Dispatching and in-progress share purple (both represent active work). The statu
 
 ### Edge styles
 
-- **Parent-child** (parent → child): solid lines, `fromSide: "bottom"`, `toSide: "top"`
-- **Depends-on** (dependency → dependent): dashed lines via Canvas edge style property
+Obsidian Canvas edges don't support a native dashed/solid style property. To distinguish edge types visually:
+
+- **Parent-child** (parent → child): unlabeled edges, default color, `fromSide: "bottom"`, `toSide: "top"`
+- **Depends-on** (dependency → dependent): labeled `"depends-on"`, orange color (`"2"`), `fromSide: "right"`, `toSide: "left"` (horizontal routing to contrast with vertical parent edges)
 
 ## Layout Algorithm
 
@@ -122,6 +124,8 @@ Cluster = {
 ```
 
 Epics that have feature children are not clusters themselves — they sit above the feature clusters they contain.
+
+Orphan nodes (no parent, no children) are placed as standalone clusters. Top-level tasks with no feature parent form their own single-node cluster.
 
 ### Pass 2 — Position within clusters
 
