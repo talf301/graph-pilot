@@ -184,12 +184,18 @@ interface PositionedCluster {
   bbox: { x: number; y: number; width: number; height: number };
 }
 
-/** Build clusters from a node list. A cluster groups a root node with its direct children. */
-function buildClusters(nodes: GraphNode[]): Cluster[] {
+/**
+ * Build clusters from a node list. A cluster groups a feature (or standalone node)
+ * with its direct children (tasks/spikes).
+ *
+ * Epics with feature children are NOT clusters — they sit above their feature clusters.
+ * Returns both clusters and a list of epic nodes that span multiple clusters.
+ */
+function buildClusters(nodes: GraphNode[]): { clusters: Cluster[]; epics: Map<string, GraphNode> } {
   const byId = new Map<string, GraphNode>();
   for (const n of nodes) byId.set(n.meta.id, n);
 
-  // Separate nodes into those with parents and those without
+  // Identify which nodes are children of other nodes
   const childSet = new Set<string>();
   for (const n of nodes) {
     if (n.meta.parent) {
@@ -198,21 +204,59 @@ function buildClusters(nodes: GraphNode[]): Cluster[] {
     }
   }
 
-  const clusterMap = new Map<string, Cluster>();
-
-  // Build clusters rooted at top-level nodes that have children
+  // Identify epics that have feature children — these are NOT cluster roots
+  const epicsWithFeatures = new Map<string, GraphNode>();
   for (const n of nodes) {
-    if (!childSet.has(n.meta.id)) {
-      // This node is a potential root
-      const children = nodes.filter((c) => {
+    if (n.meta.type === "epic" && !childSet.has(n.meta.id)) {
+      const featureChildren = nodes.filter((c) => {
         if (!c.meta.parent) return false;
-        return refToId(c.meta.parent) === n.meta.id;
+        return refToId(c.meta.parent) === n.meta.id && c.meta.type === "feature";
       });
-      clusterMap.set(n.meta.id, { root: n, children });
+      if (featureChildren.length > 0) {
+        epicsWithFeatures.set(n.meta.id, n);
+      }
     }
   }
 
-  return Array.from(clusterMap.values());
+  const clusters: Cluster[] = [];
+
+  // Build clusters: features as roots (with tasks as children), or standalone nodes
+  for (const n of nodes) {
+    if (childSet.has(n.meta.id)) continue; // skip nodes that are children
+    if (epicsWithFeatures.has(n.meta.id)) continue; // skip epics with feature children
+
+    const children = nodes.filter((c) => {
+      if (!c.meta.parent) return false;
+      return refToId(c.meta.parent) === n.meta.id;
+    });
+    clusters.push({ root: n, children });
+  }
+
+  // Also add features that are children of epics as their own clusters
+  for (const [epicId] of epicsWithFeatures) {
+    const features = nodes.filter((c) => {
+      if (!c.meta.parent) return false;
+      return refToId(c.meta.parent) === epicId && c.meta.type === "feature";
+    });
+    for (const feature of features) {
+      const taskChildren = nodes.filter((c) => {
+        if (!c.meta.parent) return false;
+        return refToId(c.meta.parent) === feature.meta.id;
+      });
+      clusters.push({ root: feature, children: taskChildren });
+    }
+    // Non-feature children of the epic (tasks/spikes directly under epic)
+    const directNonFeature = nodes.filter((c) => {
+      if (!c.meta.parent) return false;
+      return refToId(c.meta.parent) === epicId && c.meta.type !== "feature";
+    });
+    if (directNonFeature.length > 0) {
+      // Group them as a cluster with no root
+      clusters.push({ root: null, children: directNonFeature });
+    }
+  }
+
+  return { clusters, epics: epicsWithFeatures };
 }
 
 /**
@@ -271,11 +315,11 @@ function positionCluster(
       color: rootColor !== "0" ? rootColor : undefined,
       file: vaultRelativePath(rootNode.filepath, vaultRoot),
     });
-    // Status badge
+    // Status badge (centered under the card)
     canvasNodes.push({
       id: `badge-${rootNode.meta.id}`,
       type: "text",
-      x: Math.round(rx),
+      x: Math.round(rx + (rootSz.width - BADGE_WIDTH) / 2),
       y: Math.round(ry + rootSz.height + BADGE_GAP),
       width: BADGE_WIDTH,
       height: BADGE_HEIGHT,
@@ -314,11 +358,11 @@ function positionCluster(
         color: childColor !== "0" ? childColor : undefined,
         file: vaultRelativePath(child.filepath, vaultRoot),
       });
-      // Status badge
+      // Status badge (centered under the card)
       canvasNodes.push({
         id: `badge-${child.meta.id}`,
         type: "text",
-        x: Math.round(cx),
+        x: Math.round(cx + (csz.width - BADGE_WIDTH) / 2),
         y: Math.round(cy + csz.height + BADGE_GAP),
         width: BADGE_WIDTH,
         height: BADGE_HEIGHT,
@@ -383,44 +427,124 @@ function buildEdges(nodes: GraphNode[], canvasNodeIds: Set<string>): CanvasEdge[
 }
 
 /**
- * Generate Obsidian Canvas JSON for a set of nodes.
- * Nodes are laid out in clusters (parent + children) arranged in a grid.
+ * Lay out clusters in a grid and return all canvas nodes plus the total grid height.
  */
-export function toCanvas(nodes: GraphNode[], vaultRoot: string): string {
-  const clusters = buildClusters(nodes);
-
-  const allCanvasNodes: CanvasNode[] = [];
+function layoutClustersInGrid(
+  clusters: Cluster[],
+  startX: number,
+  startY: number,
+  vaultRoot: string,
+): { canvasNodes: CanvasNode[]; positioned: PositionedCluster[]; totalWidth: number; totalHeight: number } {
+  const canvasNodes: CanvasNode[] = [];
+  const positioned: PositionedCluster[] = [];
   const GRID_COLS = 3;
-  let curX = 0;
-  let curY = 0;
+  let curX = startX;
+  let curY = startY;
   let rowMaxHeight = 0;
   let colInRow = 0;
+  let totalWidth = 0;
 
-  const positionedClusters: PositionedCluster[] = [];
-
-  for (let i = 0; i < clusters.length; i++) {
-    const cluster = clusters[i];
-    const { canvasNodes, bbox } = positionCluster(cluster, curX, curY, vaultRoot);
-
-    positionedClusters.push({
+  for (const cluster of clusters) {
+    const result = positionCluster(cluster, curX, curY, vaultRoot);
+    positioned.push({
       cluster,
-      canvasNodes,
-      bbox: { x: curX, y: curY, width: bbox.width, height: bbox.height },
+      canvasNodes: result.canvasNodes,
+      bbox: { x: curX, y: curY, width: result.bbox.width, height: result.bbox.height },
     });
-
-    allCanvasNodes.push(...canvasNodes);
-
-    rowMaxHeight = Math.max(rowMaxHeight, bbox.height);
+    canvasNodes.push(...result.canvasNodes);
+    rowMaxHeight = Math.max(rowMaxHeight, result.bbox.height);
+    totalWidth = Math.max(totalWidth, curX - startX + result.bbox.width);
     colInRow++;
 
     if (colInRow >= GRID_COLS) {
-      curX = 0;
+      curX = startX;
       curY += rowMaxHeight + CLUSTER_V_PAD;
       rowMaxHeight = 0;
       colInRow = 0;
     } else {
-      curX += bbox.width + CLUSTER_H_PAD;
+      curX += result.bbox.width + CLUSTER_H_PAD;
     }
+  }
+
+  // Total height: last complete row + any partial row
+  const totalHeight = (curY - startY) + (colInRow > 0 ? rowMaxHeight : 0);
+
+  return { canvasNodes, positioned, totalWidth, totalHeight };
+}
+
+/**
+ * Generate Obsidian Canvas JSON for a set of nodes.
+ * Nodes are laid out in clusters (parent + children) arranged in a grid.
+ * Epics with feature children sit above their feature clusters.
+ */
+export function toCanvas(nodes: GraphNode[], vaultRoot: string): string {
+  const { clusters, epics } = buildClusters(nodes);
+  const allCanvasNodes: CanvasNode[] = [];
+
+  // Group clusters by their parent epic
+  const epicClusters = new Map<string, Cluster[]>(); // epicId → feature clusters
+  const standaloneClusters: Cluster[] = [];
+
+  for (const cluster of clusters) {
+    if (cluster.root?.meta.parent) {
+      const parentId = refToId(cluster.root.meta.parent);
+      if (epics.has(parentId)) {
+        const list = epicClusters.get(parentId) ?? [];
+        list.push(cluster);
+        epicClusters.set(parentId, list);
+        continue;
+      }
+    }
+    standaloneClusters.push(cluster);
+  }
+
+  // Layout: first position epic groups, then standalone clusters
+  let curY = 0;
+
+  // Position epic groups
+  for (const [epicId, epic] of epics) {
+    const featureClusters = epicClusters.get(epicId) ?? [];
+    const epicSz = NODE_SIZE[epic.meta.type] ?? { width: 400, height: 200 };
+    const epicColor = STATUS_COLOR[epic.meta.status];
+
+    // Leave space for epic card + badge above the feature clusters
+    const epicAreaHeight = epicSz.height + BADGE_HEIGHT + BADGE_GAP + CHILD_V_GAP;
+
+    // Layout feature clusters in a grid below the epic
+    const gridResult = layoutClustersInGrid(featureClusters, 0, curY + epicAreaHeight, vaultRoot);
+    const spanWidth = Math.max(epicSz.width, gridResult.totalWidth);
+
+    // Position epic centered above its feature clusters
+    const epicX = (spanWidth - epicSz.width) / 2;
+    allCanvasNodes.push({
+      id: `node-${epic.meta.id}`,
+      type: "file",
+      x: Math.round(epicX),
+      y: curY,
+      width: epicSz.width,
+      height: epicSz.height,
+      color: epicColor !== "0" ? epicColor : undefined,
+      file: vaultRelativePath(epic.filepath, vaultRoot),
+    });
+    allCanvasNodes.push({
+      id: `badge-${epic.meta.id}`,
+      type: "text",
+      x: Math.round(epicX + (epicSz.width - BADGE_WIDTH) / 2),
+      y: curY + epicSz.height + BADGE_GAP,
+      width: BADGE_WIDTH,
+      height: BADGE_HEIGHT,
+      text: epic.meta.status,
+      color: epicColor !== "0" ? epicColor : undefined,
+    });
+
+    allCanvasNodes.push(...gridResult.canvasNodes);
+    curY += epicAreaHeight + gridResult.totalHeight + CLUSTER_V_PAD;
+  }
+
+  // Layout standalone clusters
+  if (standaloneClusters.length > 0) {
+    const gridResult = layoutClustersInGrid(standaloneClusters, 0, curY, vaultRoot);
+    allCanvasNodes.push(...gridResult.canvasNodes);
   }
 
   const canvasNodeIds = new Set(allCanvasNodes.map((n) => n.id));
@@ -453,53 +577,18 @@ export function toOverviewCanvas(nodes: GraphNode[], vaultRoot: string): string 
   let rowMaxHeight = 0;
 
   for (const [project, projectNodes] of byProject) {
-    const clusters = buildClusters(projectNodes);
-
-    // Layout clusters within this project at local coords starting at 0,0
-    const localNodes: CanvasNode[] = [];
-    let localX = 0;
-    let localY = 0;
-    let localRowMax = 0;
-    let localCol = 0;
-    let totalWidth = 0;
-    let totalHeight = 0;
-
-    for (let i = 0; i < clusters.length; i++) {
-      const cluster = clusters[i];
-      const { canvasNodes, bbox } = positionCluster(
-        cluster,
-        localX,
-        localY,
-        vaultRoot
-      );
-
-      localNodes.push(...canvasNodes);
-      localRowMax = Math.max(localRowMax, bbox.height);
-      totalWidth = Math.max(totalWidth, localX + bbox.width);
-      localCol++;
-
-      if (localCol >= GROUP_COLS) {
-        localX = 0;
-        localY += localRowMax + CLUSTER_V_PAD;
-        totalHeight = localY;
-        localRowMax = 0;
-        localCol = 0;
-      } else {
-        localX += bbox.width + CLUSTER_H_PAD;
-      }
-    }
-
-    if (localRowMax > 0) totalHeight = localY + localRowMax;
+    const { clusters } = buildClusters(projectNodes);
+    const gridResult = layoutClustersInGrid(clusters, 0, 0, vaultRoot);
 
     // Group bounding box with padding
-    const groupWidth = totalWidth + GROUP_PADDING * 2;
-    const groupHeight = totalHeight + GROUP_PADDING * 2 + 30; // +30 for label
+    const groupWidth = gridResult.totalWidth + GROUP_PADDING * 2;
+    const groupHeight = gridResult.totalHeight + GROUP_PADDING * 2 + 30; // +30 for label
 
     // Offset all local nodes by group origin + padding
     const offsetX = groupX + GROUP_PADDING;
     const offsetY = groupY + GROUP_PADDING + 30;
 
-    for (const ln of localNodes) {
+    for (const ln of gridResult.canvasNodes) {
       allCanvasNodes.push({
         ...ln,
         x: ln.x + offsetX,
