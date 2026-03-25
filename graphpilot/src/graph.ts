@@ -280,6 +280,7 @@ function positionCluster(
       width: BADGE_WIDTH,
       height: BADGE_HEIGHT,
       text: rootNode.meta.status,
+      color: rootColor !== "0" ? rootColor : undefined,
     });
   }
 
@@ -322,6 +323,7 @@ function positionCluster(
         width: BADGE_WIDTH,
         height: BADGE_HEIGHT,
         text: child.meta.status,
+        color: childColor !== "0" ? childColor : undefined,
       });
 
       // Update cluster height
