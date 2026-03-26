@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GraphPilot Dashboard</title>
+  <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.js"></script>
+  <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --surface-alt: #0f3460;
+      --text: #e0e0e0;
+      --text-muted: #888;
+      --border: #2a2a4a;
+      --accent: #6c63ff;
+      --accent-hover: #5a52d5;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* --- Three-panel layout --- */
+    .panels {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* --- Left sidebar --- */
+    .sidebar {
+      width: 240px;
+      min-width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .sidebar h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.5px;
+    }
+
+    .filter-group h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .pill-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .pill {
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      transition: all 0.15s;
+      user-select: none;
+    }
+
+    .pill:hover { border-color: var(--accent); color: var(--text); }
+    .pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .layout-toggle {
+      display: flex;
+      gap: 4px;
+    }
+
+    .layout-toggle .pill { flex: 1; text-align: center; }
+
+    .btn-design {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-design:hover { background: var(--accent-hover); }
+
+    /* --- Center graph canvas --- */
+    .graph-container {
+      flex: 1;
+      position: relative;
+      background: var(--bg);
+    }
+
+    #cy {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    /* --- Right detail panel --- */
+    .detail-panel {
+      width: 320px;
+      min-width: 320px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      padding: 20px;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .detail-panel.open {
+      display: flex;
+    }
+
+    .detail-panel .detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .detail-panel .node-id {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .detail-panel .btn-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .detail-panel .btn-close:hover { color: var(--text); }
+
+    .detail-panel .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .badge.type-epic     { background: #7c3aed22; color: #a78bfa; border: 1px solid #7c3aed44; }
+    .badge.type-feature  { background: #3b82f622; color: #93c5fd; border: 1px solid #3b82f644; }
+    .badge.type-task     { background: #14b8a622; color: #5eead4; border: 1px solid #14b8a644; }
+    .badge.type-spike    { background: #eab30822; color: #fde68a; border: 1px solid #eab30844; }
+    .badge.type-dispatch-task { background: #6b728022; color: #d1d5db; border: 1px solid #6b728044; }
+
+    .badge.status-ready       { background: #eab30822; color: #fde68a; }
+    .badge.status-in-progress { background: #7c3aed22; color: #a78bfa; }
+    .badge.status-done        { background: #22c55e22; color: #86efac; }
+    .badge.status-blocked     { background: #ef444422; color: #fca5a5; }
+    .badge.status-planned     { background: #6b728022; color: #d1d5db; }
+
+    .detail-panel .meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .detail-panel .description {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+    }
+
+    .detail-panel .relations h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .detail-panel .relations ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .detail-panel .relations a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .detail-panel .relations a:hover { text-decoration: underline; }
+
+    .detail-panel .dep-done::before   { content: '✓ '; color: #22c55e; }
+    .detail-panel .dep-pending::before { content: '○ '; color: var(--text-muted); }
+
+    .detail-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .detail-actions button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .detail-actions button:hover { opacity: 0.85; }
+
+    .btn-launch   { background: #22c55e; color: #fff; }
+    .btn-dispatch { background: #f59e0b; color: #1a1a2e; }
+
+    /* --- Keyboard hint bar --- */
+    .hint-bar {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 8px 16px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .hint-bar kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      font-family: inherit;
+      font-size: 11px;
+      margin: 0 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="panels">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <h1>GraphPilot</h1>
+
+      <div class="filter-group" id="status-filters">
+        <h3>Status</h3>
+        <div class="pill-container">
+          <span class="pill active" data-filter="status" data-value="all">All</span>
+          <span class="pill" data-filter="status" data-value="ready">Ready</span>
+          <span class="pill" data-filter="status" data-value="in-progress">In Progress</span>
+          <span class="pill" data-filter="status" data-value="blocked">Blocked</span>
+          <span class="pill" data-filter="status" data-value="done">Done</span>
+          <span class="pill" data-filter="status" data-value="planned">Planned</span>
+        </div>
+      </div>
+
+      <div class="filter-group" id="type-filters">
+        <h3>Type</h3>
+        <div class="pill-container">
+          <span class="pill active" data-filter="type" data-value="all">All</span>
+          <span class="pill" data-filter="type" data-value="epic">Epic</span>
+          <span class="pill" data-filter="type" data-value="feature">Feature</span>
+          <span class="pill" data-filter="type" data-value="task">Task</span>
+          <span class="pill" data-filter="type" data-value="spike">Spike</span>
+        </div>
+      </div>
+
+      <div class="filter-group" id="project-filters">
+        <h3>Project</h3>
+        <div class="pill-container">
+          <span class="pill active" data-filter="project" data-value="all">All</span>
+          <!-- Project pills populated dynamically -->
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <h3>Layout</h3>
+        <div class="layout-toggle">
+          <span class="pill active" data-layout="cose-bilkent">Force</span>
+          <span class="pill" data-layout="dagre">Hierarchy</span>
+        </div>
+      </div>
+
+      <button class="btn-design" id="btn-design-session">Design Session</button>
+    </aside>
+
+    <!-- Center Graph Canvas -->
+    <main class="graph-container">
+      <div id="cy"></div>
+    </main>
+
+    <!-- Right Detail Panel -->
+    <aside class="detail-panel" id="detail-panel">
+      <div class="detail-header">
+        <span class="node-id" id="detail-node-id"></span>
+        <button class="btn-close" id="detail-close">&times;</button>
+      </div>
+      <div class="meta">
+        <span class="badge" id="detail-type"></span>
+        <span class="badge" id="detail-status"></span>
+      </div>
+      <div class="description" id="detail-description"></div>
+      <div class="relations" id="detail-parent"></div>
+      <div class="relations" id="detail-deps"></div>
+      <div class="relations" id="detail-children"></div>
+      <div class="detail-actions" id="detail-actions"></div>
+    </aside>
+  </div>
+
+  <footer class="hint-bar">
+    Click node to focus · Scroll to zoom · Drag to pan · <kbd>Esc</kbd> to unfocus
+  </footer>
+
+  <script src="graph.js"></script>
+  <script src="actions.js"></script>
+  <script src="filters.js"></script>
+</body>
+</html>
