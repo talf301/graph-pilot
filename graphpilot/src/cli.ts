@@ -18,9 +18,10 @@ import {
   createNode,
 } from "./vault.js";
 import { assembleContext } from "./context.js";
-import { toMermaid, toAsciiTree, toCanvas, toOverviewCanvas } from "./graph.js";
+import { toMermaid, toAsciiTree, toCanvas, toOverviewCanvas, toSummaryCanvas } from "./graph.js";
 import { type NodeType, type GpConfig, DEFAULT_CONFIG, parseWikilink } from "./schema.js";
 import { gpDispatch, gpSyncChild, gpCollapse } from "./dispatch.js";
+import { startServer, stopServer } from "./serve.js";
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -282,6 +283,7 @@ async function cmdCanvas(args: string[]) {
   const { config, vaultRoot } = requireConfig();
   const { flags } = parseFlags(args);
   const isAll = args.includes("--all");
+  const isSummary = args.includes("--summary");
   const projectFilter = flags.project?.[0];
 
   const nodes = await loadAllNodes(vaultRoot, { project: isAll ? undefined : projectFilter });
@@ -309,10 +311,13 @@ async function cmdCanvas(args: string[]) {
     }
 
     const projectNodes = nodes.filter(n => n.meta.project === project);
-    const canvasJson = toCanvas(projectNodes, vaultRoot);
-    const outPath = path.join(vaultRoot, config.root, project, `${project}.canvas`);
+    const canvasJson = isSummary
+      ? toSummaryCanvas(projectNodes, vaultRoot)
+      : toCanvas(projectNodes, vaultRoot);
+    const suffix = isSummary ? "-summary" : "";
+    const outPath = path.join(vaultRoot, config.root, project, `${project}${suffix}.canvas`);
     fs.writeFileSync(outPath, canvasJson, "utf-8");
-    ok(`Generated canvas: ${path.relative(vaultRoot, outPath)}`);
+    ok(`Generated ${isSummary ? "summary " : ""}canvas: ${path.relative(vaultRoot, outPath)}`);
   }
 }
 
@@ -607,6 +612,25 @@ async function cmdDesign(args: string[]) {
   child.on("close", (code) => process.exit(code ?? 0));
 }
 
+async function cmdServe(args: string[]) {
+  const { vaultRoot } = requireConfig();
+  const { flags } = parseFlags(args);
+
+  if (args.includes("--stop")) {
+    await stopServer();
+    ok("Server stopped.");
+    return;
+  }
+
+  const port = flags.port?.[0] ? parseInt(flags.port[0], 10) : 4800;
+  if (isNaN(port) || port < 1 || port > 65535) {
+    die("Invalid port number.");
+  }
+
+  info(`Starting dashboard server on port ${port}...`);
+  await startServer({ vaultRoot, port, daemonize: true });
+}
+
 // ── Router ───────────────────────────────────────────────────────
 
 const [, , command, ...args] = process.argv;
@@ -624,6 +648,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   collapse: cmdCollapse,
   design: cmdDesign,
   canvas: cmdCanvas,
+  serve: cmdServe,
 };
 
 if (!command || command === "help" || command === "--help") {
@@ -654,7 +679,11 @@ if (!command || command === "help" || command === "--help") {
     status [--project <name>]                     Show what's ready / active / done
     graph [--project <name>] [--mermaid]          Dependency graph
     canvas [--project <name>]                     Generate Obsidian canvas
+    canvas --summary [--project <name>]           Summary canvas (epics + features only)
     canvas --all                                  Generate overview canvas (all projects)
+
+  \x1b[36mDashboard:\x1b[0m
+    serve [--port 4800] [--stop]                  Start/stop the web dashboard
 
   \x1b[36mExample flow:\x1b[0m
     gp init ~/my-vault
