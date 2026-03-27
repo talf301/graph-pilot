@@ -9,12 +9,20 @@
   const typeEl = document.getElementById('detail-type');
   const statusEl = document.getElementById('detail-status');
   const descEl = document.getElementById('detail-description');
+  const bodyEl = document.getElementById('detail-body');
+  const obsidianLink = document.getElementById('detail-obsidian-link');
   const parentEl = document.getElementById('detail-parent');
   const depsEl = document.getElementById('detail-deps');
   const childrenEl = document.getElementById('detail-children');
   const actionsEl = document.getElementById('detail-actions');
   const closeBtn = document.getElementById('detail-close');
   const designBtn = document.getElementById('btn-design-session');
+
+  // Fetch vault name for Obsidian links
+  var vaultName = '';
+  fetch('/api/vault-info').then(function (res) { return res.json(); }).then(function (data) {
+    if (data && data.vaultName) vaultName = data.vaultName;
+  }).catch(function () { /* vault-info not available */ });
 
   // --- Helpers ---
 
@@ -140,8 +148,20 @@
     statusEl.textContent = d.status || '';
     statusEl.className = 'badge status-' + status;
 
-    // Description
-    descEl.textContent = d.description || d.body || '';
+    // Description (one-line subtitle)
+    descEl.textContent = d.description || '';
+
+    // Body (full truncated markdown)
+    bodyEl.textContent = d.body || '';
+    bodyEl.style.display = d.body ? 'block' : 'none';
+
+    // Obsidian link
+    if (d.filepath && vaultName) {
+      obsidianLink.href = 'obsidian://open?vault=' + encodeURIComponent(vaultName) + '&file=' + encodeURIComponent(d.filepath);
+      obsidianLink.style.display = 'inline';
+    } else {
+      obsidianLink.style.display = 'none';
+    }
 
     // Relationships
     renderRelations(parentEl, 'Parent', getNodeParent(d));

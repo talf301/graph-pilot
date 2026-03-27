@@ -183,6 +183,8 @@
     .badge.status-done        { background: #22c55e22; color: #86efac; }
     .badge.status-blocked     { background: #ef444422; color: #fca5a5; }
     .badge.status-planned     { background: #6b728022; color: #d1d5db; }
+    .badge.status-designing   { background: #3b82f622; color: #93c5fd; }
+    .badge.status-dispatching { background: #f9731622; color: #fdba74; }
 
     .detail-panel .meta {
       display: flex;
@@ -325,13 +327,17 @@
     <aside class="detail-panel" id="detail-panel">
       <div class="detail-header">
         <span class="node-id" id="detail-node-id"></span>
-        <button class="btn-close" id="detail-close">&times;</button>
+        <span style="display:flex;align-items:center;gap:8px;">
+          <a id="detail-obsidian-link" href="#" target="_blank" style="font-size:12px;color:var(--accent);text-decoration:none;display:none;">Open in Obsidian</a>
+          <button class="btn-close" id="detail-close">&times;</button>
+        </span>
       </div>
       <div class="meta">
         <span class="badge" id="detail-type"></span>
         <span class="badge" id="detail-status"></span>
       </div>
       <div class="description" id="detail-description"></div>
+      <div class="description" id="detail-body" style="font-size:13px;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto;"></div>
       <div class="relations" id="detail-parent"></div>
       <div class="relations" id="detail-deps"></div>
       <div class="relations" id="detail-children"></div>
