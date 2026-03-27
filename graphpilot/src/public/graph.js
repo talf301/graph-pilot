@@ -2,13 +2,16 @@
 (function () {
   'use strict';
 
-  var TYPE_COLORS = {
-    epic: '#9b59b6', feature: '#3498db', task: '#1abc9c',
-    spike: '#f1c40f', 'dispatch-task': '#95a5a6',
-  };
   var STATUS_COLORS = {
-    ready: '#f1c40f', 'in-progress': '#9b59b6', done: '#22c55e',
-    blocked: '#ef4444', planned: '#95a5a6', designing: '#3b82f6',
+    planned: '#95a5a6', designing: '#3b82f6', ready: '#f1c40f',
+    'in-progress': '#9b59b6', dispatching: '#f97316', done: '#22c55e',
+    blocked: '#ef4444',
+  };
+  // ~15% status color over dark background #1e293b
+  var STATUS_BG = {
+    planned: '#303c4b', designing: '#223657', ready: '#3e4034',
+    'in-progress': '#31304d', dispatching: '#3f3435', done: '#1f4040',
+    blocked: '#3d2d3c',
   };
 
   var LAYOUTS = {
@@ -33,12 +36,13 @@
     elements: [],
     minZoom: 0.15, maxZoom: 4, wheelSensitivity: 0.3,
     style: [
-      // Node base
+      // Node base (default = task ellipse)
       { selector: 'node', style: {
-        shape: 'round-rectangle', width: 140, height: 50, 'corner-radius': 8,
-        'background-color': '#1e293b', 'border-width': 3,
-        'border-color': function (el) { return TYPE_COLORS[el.data('type')] || '#6b7280'; },
-        label: function (el) { return (el.data('label') || el.id()) + '\n' + (el.data('type') || ''); },
+        shape: 'ellipse', width: 95, height: 38,
+        'background-color': function (el) { return STATUS_BG[el.data('status')] || '#1e293b'; },
+        'border-width': 3,
+        'border-color': function (el) { return STATUS_COLORS[el.data('status')] || '#6b7280'; },
+        label: function (el) { return el.data('label') || el.id(); },
         'text-wrap': 'wrap', 'text-max-width': 120,
         'text-valign': 'center', 'text-halign': 'center',
         color: '#e0e0e0', 'font-size': 11,
@@ -46,19 +50,11 @@
         'transition-property': 'opacity, background-color, border-color',
         'transition-duration': '200ms', 'overlay-opacity': 0,
       }},
-      // Status dot overlays (pie chart trick)
-      { selector: 'node[status="ready"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS.ready, 'pie-1-background-size': 100,
-      }},
-      { selector: 'node[status="in-progress"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS['in-progress'], 'pie-1-background-size': 100,
-      }},
-      { selector: 'node[status="done"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS.done, 'pie-1-background-size': 100,
-      }},
-      { selector: 'node[status="blocked"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS.blocked, 'pie-1-background-size': 100,
-      }},
+      // Shape & size by type
+      { selector: 'node[type="epic"]', style: { shape: 'round-rectangle', width: 170, height: 60, 'corner-radius': 8 }},
+      { selector: 'node[type="feature"]', style: { shape: 'round-rectangle', width: 130, height: 46, 'corner-radius': 8 }},
+      { selector: 'node[type="spike"]', style: { shape: 'diamond', width: 60, height: 60 }},
+      { selector: 'node[type="dispatch-task"]', style: { shape: 'ellipse', width: 85, height: 34 }},
       // Edge base
       { selector: 'edge', style: {
         width: 2, 'curve-style': 'bezier', 'target-arrow-shape': 'triangle', 'arrow-scale': 0.8,
@@ -82,6 +78,7 @@
   });
 
   window.cy = cy;
+  window.gpLayouts = LAYOUTS;
 
   // --- Layout ---
   function runLayout() {
@@ -162,7 +159,8 @@
       elements.push({ group: 'nodes', data: {
         id: n.id, label: n.label || n.id, type: n.type || 'task',
         status: n.status || 'planned', project: n.project || '',
-        description: n.description || '', parent_node: n.parent || null,
+        description: n.description || '', body: n.body || '',
+        filepath: n.filepath || '', parent_node: n.parent || null,
         deps: n.deps || [], children: n.children || [],
       }});
     });
@@ -187,6 +185,11 @@
         cy.add(el);
       }
     });
+
+    // Update filter pills from current node data
+    if (window.GraphPilotFilters && window.GraphPilotFilters.updateFromGraph) {
+      window.GraphPilotFilters.updateFromGraph(nodes || []);
+    }
 
     runLayout();
 
