@@ -2,13 +2,23 @@
 (function () {
   'use strict';
 
-  var TYPE_COLORS = {
-    epic: '#9b59b6', feature: '#3498db', task: '#1abc9c',
-    spike: '#f1c40f', 'dispatch-task': '#95a5a6',
-  };
   var STATUS_COLORS = {
-    ready: '#f1c40f', 'in-progress': '#9b59b6', done: '#22c55e',
-    blocked: '#ef4444', planned: '#95a5a6', designing: '#3b82f6',
+    planned: '#95a5a6', designing: '#3b82f6', ready: '#f1c40f',
+    'in-progress': '#9b59b6', dispatching: '#f97316', done: '#22c55e',
+    blocked: '#ef4444',
+  };
+  var STATUS_BG = {
+    planned: 'rgba(149,165,166,0.15)', designing: 'rgba(59,130,246,0.15)',
+    ready: 'rgba(241,196,15,0.15)', 'in-progress': 'rgba(155,89,182,0.15)',
+    dispatching: 'rgba(249,115,22,0.15)', done: 'rgba(34,197,94,0.15)',
+    blocked: 'rgba(239,68,68,0.15)',
+  };
+  var TYPE_SHAPES = {
+    epic:             { shape: 'round-rectangle', width: 170, height: 60 },
+    feature:          { shape: 'round-rectangle', width: 130, height: 46 },
+    task:             { shape: 'ellipse',         width: 95,  height: 38 },
+    spike:            { shape: 'diamond',         width: 60,  height: 60 },
+    'dispatch-task':  { shape: 'ellipse',         width: 85,  height: 34 },
   };
 
   var LAYOUTS = {
@@ -24,6 +34,7 @@
     },
   };
 
+  window.gpLayouts = LAYOUTS;
   var currentLayout = 'cose-bilkent';
   var focusedNodeId = null;
 
@@ -33,31 +44,22 @@
     elements: [],
     minZoom: 0.15, maxZoom: 4, wheelSensitivity: 0.3,
     style: [
-      // Node base
+      // Node base — shape by type, color by status
       { selector: 'node', style: {
-        shape: 'round-rectangle', width: 140, height: 50, 'corner-radius': 8,
-        'background-color': '#1e293b', 'border-width': 3,
-        'border-color': function (el) { return TYPE_COLORS[el.data('type')] || '#6b7280'; },
-        label: function (el) { return (el.data('label') || el.id()) + '\n' + (el.data('type') || ''); },
+        shape: function (el) { return (TYPE_SHAPES[el.data('type')] || TYPE_SHAPES.task).shape; },
+        width: function (el) { return (TYPE_SHAPES[el.data('type')] || TYPE_SHAPES.task).width; },
+        height: function (el) { return (TYPE_SHAPES[el.data('type')] || TYPE_SHAPES.task).height; },
+        'corner-radius': 8,
+        'background-color': function (el) { return STATUS_BG[el.data('status')] || STATUS_BG.planned; },
+        'border-width': 3,
+        'border-color': function (el) { return STATUS_COLORS[el.data('status')] || STATUS_COLORS.planned; },
+        label: function (el) { return el.data('label') || el.id(); },
         'text-wrap': 'wrap', 'text-max-width': 120,
         'text-valign': 'center', 'text-halign': 'center',
         color: '#e0e0e0', 'font-size': 11,
         'font-family': '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
         'transition-property': 'opacity, background-color, border-color',
         'transition-duration': '200ms', 'overlay-opacity': 0,
-      }},
-      // Status dot overlays (pie chart trick)
-      { selector: 'node[status="ready"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS.ready, 'pie-1-background-size': 100,
-      }},
-      { selector: 'node[status="in-progress"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS['in-progress'], 'pie-1-background-size': 100,
-      }},
-      { selector: 'node[status="done"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS.done, 'pie-1-background-size': 100,
-      }},
-      { selector: 'node[status="blocked"]', style: {
-        'pie-size': '12px', 'pie-1-background-color': STATUS_COLORS.blocked, 'pie-1-background-size': 100,
       }},
       // Edge base
       { selector: 'edge', style: {
@@ -162,7 +164,8 @@
       elements.push({ group: 'nodes', data: {
         id: n.id, label: n.label || n.id, type: n.type || 'task',
         status: n.status || 'planned', project: n.project || '',
-        description: n.description || '', parent_node: n.parent || null,
+        description: n.description || '', body: n.body || '',
+        filepath: n.filepath || '', parent_node: n.parent || null,
         deps: n.deps || [], children: n.children || [],
       }});
     });
@@ -187,6 +190,11 @@
         cy.add(el);
       }
     });
+
+    // Update filter pills from new data
+    if (window.GraphPilotFilters && window.GraphPilotFilters.updateFromGraph) {
+      window.GraphPilotFilters.updateFromGraph(nodes || []);
+    }
 
     runLayout();
 
