@@ -42,6 +42,18 @@ if (window.GraphPilotFilters) {
 
 This populates filter pills and applies filters on every graph data update.
 
+Also in `updateGraph()`, the element data mapping must include all new payload fields. The current mapping only passes `id, label, type, status, project, description, parent_node, deps, children`. Add `body` and `filepath` to the Cytoscape element data so `actions.js` can read them from `node.data()`:
+
+```js
+elements.push({ group: 'nodes', data: {
+  id: n.id, label: n.label || n.id, type: n.type || 'task',
+  status: n.status || 'planned', project: n.project || '',
+  description: n.description || '', body: n.body || '',
+  parent_node: n.parent || null, filepath: n.filepath || '',
+  deps: n.deps || [], children: n.children || [],
+}});
+```
+
 ### 2. Node Visuals — Shape by Type, Color by Status
 
 **Shape mapping (Cytoscape shapes):**
@@ -86,7 +98,7 @@ URI format: `obsidian://open?vault=VAULT_NAME&file=RELATIVE_PATH`
 - Vault name: use `path.basename(vaultRoot)` — this is the directory name which matches the Obsidian vault name. Expose via a new `GET /api/vault-info` endpoint returning `{ vaultName: string }`.
 - File path: vault-relative path, sent as part of the node payload (see section 1).
 
-The client fetches vault info once on load and constructs the URI per node.
+The client fetches vault info once on module init (`actions.js` IIFE top-level) and stores `vaultName` in a closure variable. In `renderDetail()`, if `d.filepath` is present and `vaultName` is set, populate the `detail-obsidian-link` href and show it; otherwise hide the link.
 
 **Relations:** Parent, dependencies, and children are now populated from actual data (see section 1). Dependency links show done/pending indicators. Clicking a relation link focuses that node in the graph.
 
@@ -97,6 +109,8 @@ The client fetches vault info once on load and constructs the URI per node.
 **Layout toggle:** `filters.js:runLayout()` currently passes minimal generic options to `cy.layout()`. Fix: expose the `LAYOUTS` config object from `graph.js` on `window` (e.g., `window.gpLayouts`), and have `filters.js:runLayout()` use `window.gpLayouts[name]` instead of constructing its own options. This keeps `graph.js` as the single source of truth for layout parameters.
 
 Note: `graph.js:runLayout()` already delegates to `GraphPilotFilters.runLayout()` when available — the layout delegation path works, but `filters.js` needs access to the full config to pass the right parameters to Cytoscape.
+
+`filters.js:runLayout()` should guard against `window.gpLayouts` being undefined (script load order): fall back to `{ name: name, animate: true, fit: true, padding: 40 }` if not set.
 
 ### 5. Add Node from Dashboard (Future — Spec Only)
 
@@ -128,7 +142,7 @@ When stub nodes exist (nodes with a name but minimal/empty body), a design sessi
 - `graphpilot/src/public/graph.js` — new visual style, wire up filter updates, fix layout delegation
 - `graphpilot/src/public/filters.js` — use full layout configs
 - `graphpilot/src/public/actions.js` — detail panel body rendering, Obsidian link
-- `graphpilot/src/public/index.html` — add Obsidian link element (`id="detail-obsidian-link"`, an `<a>` tag) to the detail panel header next to the close button
+- `graphpilot/src/public/index.html` — add Obsidian link element (`id="detail-obsidian-link"`, an `<a>` tag) to the detail panel header next to the close button; add `id="detail-body"` div below `#detail-description` for the full body content; add badge CSS rules for `.badge.status-designing` and `.badge.status-dispatching`
 
 ## Out of Scope
 
