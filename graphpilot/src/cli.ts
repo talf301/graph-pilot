@@ -18,7 +18,7 @@ import {
   createNode,
 } from "./vault.js";
 import { assembleContext } from "./context.js";
-import { toMermaid, toAsciiTree, toCanvas, toOverviewCanvas, toSummaryCanvas } from "./graph.js";
+import { toMermaid, toAsciiTree, toCanvas, toOverviewCanvas } from "./graph.js";
 import { type NodeType, type GpConfig, DEFAULT_CONFIG, parseWikilink } from "./schema.js";
 import { gpDispatch, gpSyncChild, gpCollapse } from "./dispatch.js";
 import { startServer, stopServer } from "./serve.js";
@@ -51,11 +51,17 @@ function parseFlags(args: string[]): { positional: string[]; flags: Record<strin
   const positional: string[] = [];
   const flags: Record<string, string[]> = {};
   let i = 0;
+  const booleanFlags = new Set(["foreground", "stop", "daemonize", "mermaid", "summary", "overview"]);
   while (i < args.length) {
-    if (args[i].startsWith("--") && i + 1 < args.length) {
+    if (args[i].startsWith("--")) {
       const key = args[i].slice(2);
-      flags[key] = flags[key] ?? [];
-      flags[key].push(args[++i]);
+      if (booleanFlags.has(key) || i + 1 >= args.length || args[i + 1].startsWith("--")) {
+        flags[key] = flags[key] ?? [];
+        flags[key].push("true");
+      } else {
+        flags[key] = flags[key] ?? [];
+        flags[key].push(args[++i]);
+      }
     } else {
       positional.push(args[i]);
     }
@@ -311,9 +317,7 @@ async function cmdCanvas(args: string[]) {
     }
 
     const projectNodes = nodes.filter(n => n.meta.project === project);
-    const canvasJson = isSummary
-      ? toSummaryCanvas(projectNodes, vaultRoot)
-      : toCanvas(projectNodes, vaultRoot);
+    const canvasJson = toCanvas(projectNodes, vaultRoot);
     const suffix = isSummary ? "-summary" : "";
     const outPath = path.join(vaultRoot, config.root, project, `${project}${suffix}.canvas`);
     fs.writeFileSync(outPath, canvasJson, "utf-8");
@@ -613,10 +617,10 @@ async function cmdDesign(args: string[]) {
 }
 
 async function cmdServe(args: string[]) {
-  const { vaultRoot } = requireConfig();
   const { flags } = parseFlags(args);
+  const vaultRoot = flags.vault?.[0] ?? requireConfig().vaultRoot;
 
-  if (args.includes("--stop")) {
+  if (flags.stop) {
     await stopServer();
     ok("Server stopped.");
     return;
@@ -627,8 +631,9 @@ async function cmdServe(args: string[]) {
     die("Invalid port number.");
   }
 
+  const foreground = !!flags.foreground;
   info(`Starting dashboard server on port ${port}...`);
-  await startServer({ vaultRoot, port, daemonize: true });
+  await startServer({ vaultRoot, port, daemonize: !foreground });
 }
 
 // ── Router ───────────────────────────────────────────────────────

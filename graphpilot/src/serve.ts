@@ -129,28 +129,37 @@ function refToId(ref: string): string {
 function setupWatcher(vaultRoot: string): void {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const projectsDir = vaultRoot;
-
-  watcher = fs.watch(projectsDir, { recursive: true }, (_event, filename) => {
-    if (!filename || !filename.endsWith(".md")) return;
-
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(async () => {
-      const start = Date.now();
-      try {
-        cachedNodes = await loadAllNodes(vaultRoot);
-        cachedIndex = indexById(cachedNodes);
-        const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
-        broadcastUpdate(payload);
-        const elapsed = Date.now() - start;
-        if (elapsed > 200) {
-          console.warn(`[graphpilot] rebuild+push took ${elapsed}ms (>200ms threshold)`);
-        }
-      } catch (err) {
-        console.error("[graphpilot] rebuild failed:", err);
+  const rebuild = async () => {
+    const start = Date.now();
+    try {
+      cachedNodes = await loadAllNodes(vaultRoot);
+      cachedIndex = indexById(cachedNodes);
+      const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
+      broadcastUpdate(payload);
+      const elapsed = Date.now() - start;
+      if (elapsed > 200) {
+        console.warn(`[graphpilot] rebuild+push took ${elapsed}ms (>200ms threshold)`);
       }
-    }, 300);
-  });
+    } catch (err) {
+      console.error("[graphpilot] rebuild failed:", err);
+    }
+  };
+
+  const onChange = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(rebuild, 300);
+  };
+
+  try {
+    watcher = fs.watch(vaultRoot, { recursive: true }, (_event, filename) => {
+      if (!filename || !filename.endsWith(".md")) return;
+      onChange();
+    });
+  } catch {
+    // Fallback: poll for changes every 2 seconds (recursive watch unavailable on this platform)
+    console.log("[graphpilot] recursive watch unavailable, using polling fallback");
+    setInterval(rebuild, 2000);
+  }
 }
 
 function broadcastUpdate(payload: GraphPayload): void {
@@ -182,7 +191,8 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   app.use(express.json());
 
   // Serve static files from public/
-  const publicDir = path.join(import.meta.dirname, "public");
+  const thisDir = path.dirname(new URL(import.meta.url).pathname);
+  const publicDir = path.join(thisDir, "public");
   app.use(express.static(publicDir));
 
   // ── REST API ─────────────────────────────────────────────────
@@ -340,10 +350,11 @@ function daemonize(opts: ServeOpts): Promise<void> {
         ...process.execArgv,
         process.argv[1],
         "serve",
+        "--foreground",
         "--vault",
         opts.vaultRoot,
         "--port",
-        String(opts.port ?? 3742),
+        String(opts.port ?? 4800),
       ],
       {
         detached: true,

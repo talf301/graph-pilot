@@ -87,9 +87,14 @@
 
   // --- Layout ---
   function runLayout() {
-    if (cy.elements().length > 0) {
-      cy.layout(LAYOUTS[currentLayout]).run();
+    if (cy.elements(':visible').length === 0) return;
+    // Defer until the container has non-zero dimensions (first paint)
+    if (cy.width() === 0 || cy.height() === 0) {
+      requestAnimationFrame(runLayout);
+      return;
     }
+    cy.resize();                       // ensure Cytoscape knows current dimensions
+    cy.layout(LAYOUTS[currentLayout]).run();
   }
 
   // Layout toggle from sidebar pills
