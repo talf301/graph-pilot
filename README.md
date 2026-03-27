@@ -2,8 +2,7 @@
 
 A CLI that turns an Obsidian vault into a visual project planning surface, tightly integrated with Claude Code for implementation. Plan work as a dependency graph, launch scoped AI sessions with full context, and track progress — all from markdown files in your vault.
 
-<!-- TODO: Add workflow diagram image -->
-![GraphPilot Workflow](docs/images/workflow.png)
+![GraphPilot Dashboard](docs/images/dashboard.png)
 
 ## How It Works
 
@@ -133,9 +132,18 @@ npm link       # makes `gp` available globally
 
 Requires Node.js 20+.
 
+### Dashboard
+
+```bash
+gp serve [--port 4800]                  # Launch live dashboard (daemonized)
+gp serve --foreground                   # Run in foreground
+gp serve --stop                         # Stop the daemon
+```
+
+The dashboard provides a force-directed graph visualization with real-time updates via WebSocket, status/type/project filtering, and launch/dispatch controls.
+
 ## Future Plans
 
-- **`gp serve`** — interactive HTML dashboard with force-directed graph visualization, real-time updates, and launch/dispatch controls
 - **Session capture** — auto-write session summaries to node implementation notes
 - **Git hooks** — auto-attach commit SHAs via `GRAPHPILOT_NODE` env var
 - **MCP server mode** — expose vault operations as MCP tools for direct Claude Code access
