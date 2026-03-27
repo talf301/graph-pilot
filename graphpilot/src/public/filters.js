@@ -97,10 +97,10 @@
   // --- Apply filters to Cytoscape ---
 
   function applyFilters() {
-    if (typeof cy === 'undefined' || !cy) return;
+    if (!window.cy) return;
 
-    cy.batch(function () {
-      cy.nodes().forEach(function (node) {
+    window.cy.batch(function () {
+      window.cy.nodes().forEach(function (node) {
         var show = matchesFilter('status', node.data('status'))
           && matchesFilter('type', node.data('type'))
           && matchesFilter('project', node.data('project'));
@@ -112,7 +112,7 @@
       });
 
       // Hide edges where either endpoint is hidden
-      cy.edges().forEach(function (edge) {
+      window.cy.edges().forEach(function (edge) {
         var srcVisible = edge.source().style('display') !== 'none';
         var tgtVisible = edge.target().style('display') !== 'none';
         edge.style('display', srcVisible && tgtVisible ? 'element' : 'none');
@@ -143,20 +143,11 @@
   });
 
   function runLayout(name) {
-    if (typeof cy === 'undefined' || !cy) return;
-    cy.layout({
-      name: name,
-      animate: true,
-      animationDuration: 400,
-      fit: true,
-      padding: 40,
-      // cose-bilkent options
-      nodeDimensionsIncludeLabels: true,
-      idealEdgeLength: 80,
-      // dagre options
-      rankDir: 'TB',
-      spacingFactor: 1.2,
-    }).run();
+    if (!window.cy) return;
+    var opts = (window.gpLayouts && window.gpLayouts[name])
+      ? window.gpLayouts[name]
+      : { name: name, animate: true, fit: true, padding: 40 };
+    window.cy.layout(opts).run();
   }
 
   // --- Design Session button ---
