@@ -25,11 +25,16 @@ interface GraphPayload {
 
 interface NodePayload {
   id: string;
+  label: string;
   type: string;
   status: string;
   project: string;
   parent: string | null;
-  title: string;
+  body: string;
+  description: string;
+  deps: string[];
+  children: string[];
+  filepath: string;
 }
 
 interface EdgePayload {
@@ -42,24 +47,56 @@ interface EdgePayload {
 
 let cachedNodes: GraphNode[] = [];
 let cachedIndex: Map<string, GraphNode> = new Map();
+let cachedVaultRoot: string = "";
 let watcher: fs.FSWatcher | null = null;
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
 
 // ── Graph building ───────────────────────────────────────────────
 
-function buildGraphPayload(nodes: GraphNode[]): GraphPayload {
-  const nodePayloads: NodePayload[] = nodes.map((n) => ({
-    id: n.meta.id,
-    type: n.meta.type,
-    status: n.meta.status,
-    project: n.meta.project,
-    parent: n.meta.parent,
-    title: n.meta.id,
-  }));
+function buildGraphPayload(nodes: GraphNode[], vaultRoot: string): GraphPayload {
+  // Build children lookup via reverse parent mapping
+  const childrenMap = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (n.meta.parent) {
+      const parentId = refToId(n.meta.parent);
+      const existing = childrenMap.get(parentId);
+      if (existing) {
+        existing.push(n.meta.id);
+      } else {
+        childrenMap.set(parentId, [n.meta.id]);
+      }
+    }
+  }
+
+  const idSet = new Set(nodes.map((n) => n.meta.id));
+
+  const nodePayloads: NodePayload[] = nodes.map((n) => {
+    const truncatedBody = n.body.length > 500 ? n.body.slice(0, 500) : n.body;
+    const firstNonEmpty = n.body
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "";
+    const resolvedDeps = (n.meta["depends-on"] ?? [])
+      .map(refToId)
+      .filter((d) => idSet.has(d));
+
+    return {
+      id: n.meta.id,
+      label: n.meta.id,
+      type: n.meta.type,
+      status: n.meta.status,
+      project: n.meta.project,
+      parent: n.meta.parent,
+      body: truncatedBody,
+      description: firstNonEmpty,
+      deps: resolvedDeps,
+      children: childrenMap.get(n.meta.id) ?? [],
+      filepath: path.relative(vaultRoot, n.filepath),
+    };
+  });
 
   const edges: EdgePayload[] = [];
-  const idSet = new Set(nodes.map((n) => n.meta.id));
 
   for (const node of nodes) {
     for (const dep of node.meta["depends-on"] ?? []) {
@@ -103,7 +140,7 @@ function setupWatcher(vaultRoot: string): void {
       try {
         cachedNodes = await loadAllNodes(vaultRoot);
         cachedIndex = indexById(cachedNodes);
-        const payload = buildGraphPayload(cachedNodes);
+        const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
         broadcastUpdate(payload);
         const elapsed = Date.now() - start;
         if (elapsed > 200) {
@@ -137,6 +174,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   }
 
   // Initial load
+  cachedVaultRoot = vaultRoot;
   cachedNodes = await loadAllNodes(vaultRoot);
   cachedIndex = indexById(cachedNodes);
 
@@ -150,8 +188,12 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   // ── REST API ─────────────────────────────────────────────────
 
   app.get("/api/graph", (_req, res) => {
-    const payload = buildGraphPayload(cachedNodes);
+    const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
     res.json(payload);
+  });
+
+  app.get("/api/vault-info", (_req, res) => {
+    res.json({ vaultName: path.basename(vaultRoot) });
   });
 
   app.get("/api/node/:id", (req, res) => {
@@ -239,7 +281,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 
   wss.on("connection", (ws: WebSocket) => {
     // Send current graph state on connect
-    const payload = buildGraphPayload(cachedNodes);
+    const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
     ws.send(JSON.stringify({ type: "graph-update", ...payload }));
   });
 
