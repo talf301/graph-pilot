@@ -375,7 +375,7 @@ async function cmdLaunch(args: string[]) {
 
   // Launch claude interactively with the context as initial prompt
   // Use --initial-prompt if available, otherwise pipe to stdin
-  const child = spawn("claude", ["--dangerously-skip-permissions", "--initial-prompt", prompt], {
+  const child = spawn("claude", ["--dangerously-skip-permissions", prompt], {
     cwd: projectRoot,
     stdio: "inherit",
     env: {

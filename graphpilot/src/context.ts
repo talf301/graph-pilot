@@ -74,16 +74,19 @@ export function assembleContext(
   sections.push("---");
   sections.push("## Session Instructions");
   sections.push("");
-  sections.push("1. Implement the work described in the target node above.");
   sections.push(
-    "2. Respect the interface contracts of your dependencies."
-  );
-  sections.push("3. Satisfy all acceptance criteria listed in the target node.");
-  sections.push(
-    "4. When done, summarize what was implemented in an **Implementation Notes** section."
+    "Your goal is to **design a spec** for the work described in the target node above."
   );
   sections.push(
-    '5. Do NOT modify the node files — the `gp complete` command handles status updates.'
+    "Use the /brainstorm skill to explore requirements, constraints, and design options with the user."
+  );
+  sections.push(
+    "Once aligned, produce a detailed spec document capturing the agreed design."
+  );
+  sections.push("");
+  sections.push("Do NOT start implementing code. Implementation will be handled by dispatch.");
+  sections.push(
+    'Do NOT modify the node files — the `gp complete` command handles status updates.'
   );
   sections.push("");
 
