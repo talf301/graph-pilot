@@ -300,7 +300,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
       return;
     }
 
-    const { type, id, title, description, parent } = req.body ?? {};
+    const { type, id, title, description, parent, severity } = req.body ?? {};
 
     // Required fields
     if (!type || !id || !title) {
@@ -309,9 +309,16 @@ export async function startServer(opts: ServeOpts): Promise<void> {
     }
 
     // Valid type
-    const allowedTypes = ["epic", "feature", "spike"] as const;
+    const allowedTypes = ["epic", "feature", "spike", "bug"] as const;
     if (!allowedTypes.includes(type)) {
       res.status(400).json({ error: `Invalid type: must be one of ${allowedTypes.join(", ")}` });
+      return;
+    }
+
+    // Validate severity (only for bugs)
+    const allowedSeverities = ["critical", "high", "medium", "low"] as const;
+    if (type === "bug" && severity && !allowedSeverities.includes(severity)) {
+      res.status(400).json({ error: `Invalid severity: must be one of ${allowedSeverities.join(", ")}` });
       return;
     }
 
@@ -335,7 +342,13 @@ export async function startServer(opts: ServeOpts): Promise<void> {
         res.status(404).json({ error: `Parent node "${parent}" not found` });
         return;
       }
-      if (parentNode.meta.type !== "epic") {
+      // Bugs can have epic or feature parents; other types require epic parent
+      if (type === "bug") {
+        if (parentNode.meta.type !== "epic" && parentNode.meta.type !== "feature") {
+          res.status(400).json({ error: `Parent node "${parent}" must be an epic or feature for bugs` });
+          return;
+        }
+      } else if (parentNode.meta.type !== "epic") {
         res.status(400).json({ error: `Parent node "${parent}" must be an epic` });
         return;
       }
@@ -362,12 +375,19 @@ export async function startServer(opts: ServeOpts): Promise<void> {
         parent: parent ?? undefined,
       });
 
+      // Write severity into frontmatter for bugs
+      if (type === "bug") {
+        (node.meta as unknown as Record<string, unknown>).severity = severity ?? "medium";
+      }
+
       // If description provided, populate the Intent section and re-write
-      if (description) {
-        node.body = node.body.replace(
-          "## Intent\n\n",
-          `## Intent\n\n${description}\n`,
-        );
+      if (description || type === "bug") {
+        if (description) {
+          node.body = node.body.replace(
+            "## Intent\n\n",
+            `## Intent\n\n${description}\n`,
+          );
+        }
         writeNode(node);
       }
 
@@ -381,6 +401,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
         status: node.meta.status,
         project: node.meta.project,
         parent: node.meta.parent,
+        ...(type === "bug" && { severity: (node.meta as unknown as Record<string, unknown>).severity }),
         filepath: path.relative(cachedVaultRoot, node.filepath),
       });
     } catch (err: unknown) {
