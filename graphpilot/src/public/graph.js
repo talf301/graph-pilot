@@ -126,18 +126,29 @@
     cy.elements().removeClass('dimmed');
   }
 
-  // Click node: select + focus
+  // Click node: pick mode intercept, then select + focus
   cy.on('tap', 'node', function (evt) {
     var node = evt.target;
+
+    // Pick mode: only allow epic selection, fill parent field
+    if (window.gpPickMode && window.gpPickMode.isActive()) {
+      var type = (node.data('type') || '').toLowerCase();
+      if (type === 'epic') {
+        window.gpPickMode.select(node.id());
+      }
+      return; // don't focus/select in pick mode
+    }
+
     focusNode(node.id());
     document.dispatchEvent(
       new CustomEvent('gp:node-select', { detail: { id: node.id(), data: node.data() } })
     );
   });
 
-  // Click background: unfocus
+  // Click background: unfocus (skip in pick mode)
   cy.on('tap', function (evt) {
     if (evt.target === cy) {
+      if (window.gpPickMode && window.gpPickMode.isActive()) return;
       unfocus();
       document.dispatchEvent(new CustomEvent('gp:node-deselect'));
     }
