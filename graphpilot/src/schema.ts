@@ -20,6 +20,7 @@ export const NodeType = {
   Feature: "feature",
   Task: "task",
   Spike: "spike",
+  Bug: "bug",
   DispatchTask: "dispatch-task",
 } as const;
 export type NodeType = (typeof NodeType)[keyof typeof NodeType];
@@ -28,8 +29,10 @@ export const NodeStatus = {
   Planned: "planned",
   Designing: "designing",
   Ready: "ready", // all deps met, spec written, can be launched
+  Open: "open", // bug reported but not yet started
   InProgress: "in-progress",
   Dispatching: "dispatching",
+  Fixed: "fixed", // bug has been resolved
   Done: "done",
   Blocked: "blocked",
 } as const;
