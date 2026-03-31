@@ -368,7 +368,11 @@ async function cmdLaunch(args: string[]) {
   target.meta.status = "in-progress";
   writeNode(target);
 
-  info(`Launching Claude Code for: ${target.meta.id}`);
+  if ((target.meta.type as string) === "bug") {
+    info(`Launching Claude Code to fix bug: ${target.meta.id}`);
+  } else {
+    info(`Launching Claude Code for: ${target.meta.id}`);
+  }
   info(`Project: ${target.meta.project} → ${projectRoot}`);
   info(`Context: ${contextNodes.length} nodes assembled`);
   console.log("");

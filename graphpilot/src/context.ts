@@ -74,17 +74,33 @@ export function assembleContext(
   sections.push("---");
   sections.push("## Session Instructions");
   sections.push("");
-  sections.push(
-    "Your goal is to **design a spec** for the work described in the target node above."
-  );
-  sections.push(
-    "Use the /brainstorm skill to explore requirements, constraints, and design options with the user."
-  );
-  sections.push(
-    "Once aligned, produce a detailed spec document capturing the agreed design."
-  );
+
+  if ((target.meta.type as string) === "bug") {
+    sections.push(
+      "Your goal is to **fix the bug** described in the target node above."
+    );
+    sections.push(
+      "Reproduce the issue using the Steps to Reproduce, identify the root cause, and implement a fix."
+    );
+    sections.push(
+      "Write or update tests to prevent regression."
+    );
+  } else {
+    sections.push(
+      "Your goal is to **design a spec** for the work described in the target node above."
+    );
+    sections.push(
+      "Use the /brainstorm skill to explore requirements, constraints, and design options with the user."
+    );
+    sections.push(
+      "Once aligned, produce a detailed spec document capturing the agreed design."
+    );
+  }
+
   sections.push("");
-  sections.push("Do NOT start implementing code. Implementation will be handled by dispatch.");
+  if ((target.meta.type as string) !== "bug") {
+    sections.push("Do NOT start implementing code. Implementation will be handled by dispatch.");
+  }
   sections.push(
     'Do NOT modify the node files — the `gp complete` command handles status updates.'
   );
@@ -114,6 +130,27 @@ function renderNode(
 
   if (opts.full) {
     lines.push(node.body.trim());
+  } else if ((node.meta.type as string) === "bug") {
+    // Bug nodes: show description and reproduction steps
+    const description = extractSection(node.body, "Description");
+    const steps = extractSection(node.body, "Steps to Reproduce");
+    const expected = extractSection(node.body, "Expected vs Actual");
+
+    if (description) {
+      lines.push("**Description:**");
+      lines.push(description);
+      lines.push("");
+    }
+    if (steps) {
+      lines.push("**Steps to Reproduce:**");
+      lines.push(steps);
+      lines.push("");
+    }
+    if (expected) {
+      lines.push("**Expected vs Actual:**");
+      lines.push(expected);
+      lines.push("");
+    }
   } else {
     // Just show intent + acceptance criteria + interface contract
     const intent = extractSection(node.body, "Intent");
