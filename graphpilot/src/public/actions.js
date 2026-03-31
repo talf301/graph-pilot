@@ -200,6 +200,23 @@
       actionsEl.appendChild(dispatchBtn);
     }
 
+    // Create child: shown for epics
+    if (nodeType === 'epic') {
+      var createChildBtn = document.createElement('button');
+      createChildBtn.className = 'btn-launch';
+      createChildBtn.textContent = 'Create Child';
+      createChildBtn.style.background = 'var(--accent)';
+      createChildBtn.addEventListener('click', function () {
+        if (window.gpOpenCreatePanel) {
+          window.gpOpenCreatePanel({
+            parent: nodeId,
+            restrictTypes: ['feature', 'spike'],
+          });
+        }
+      });
+      actionsEl.appendChild(createChildBtn);
+    }
+
     // Clear old feedback
     var fb = document.getElementById('detail-feedback');
     if (fb) { fb.textContent = ''; fb.style.background = 'none'; }

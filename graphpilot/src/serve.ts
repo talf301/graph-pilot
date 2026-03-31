@@ -5,9 +5,10 @@ import http from "node:http";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
 import matter from "gray-matter";
-import { loadAllNodes, indexById, findVaultRoot, readNode } from "./vault.js";
+import { loadAllNodes, indexById, findVaultRoot, readNode, createNode, writeNode, findConfigPath, loadConfig } from "./vault.js";
 import { ensureSession, spawnWindow, checkTmux } from "./tmux.js";
 import type { GraphNode } from "./schema.js";
+import type { GpConfig } from "./schema.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ interface EdgePayload {
 let cachedNodes: GraphNode[] = [];
 let cachedIndex: Map<string, GraphNode> = new Map();
 let cachedVaultRoot: string = "";
+let cachedConfig: GpConfig | null = null;
 let watcher: fs.FSWatcher | null = null;
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
@@ -187,6 +189,12 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   cachedNodes = await loadAllNodes(vaultRoot);
   cachedIndex = indexById(cachedNodes);
 
+  // Load config for node creation
+  const configPath = findConfigPath(vaultRoot);
+  if (configPath) {
+    cachedConfig = loadConfig(configPath);
+  }
+
   const app = express();
   app.use(express.json());
 
@@ -278,6 +286,103 @@ export async function startServer(opts: ServeOpts): Promise<void> {
       ensureSession();
       spawnWindow(windowName, cmd);
       res.json({ ok: true, window: windowName });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ── Node creation ───────────────────────────────────────────
+
+  app.post("/api/node", (req, res) => {
+    if (!cachedConfig) {
+      res.status(500).json({ error: "No graphpilot.yaml config found" });
+      return;
+    }
+
+    const { type, id, title, description, parent } = req.body ?? {};
+
+    // Required fields
+    if (!type || !id || !title) {
+      res.status(400).json({ error: "Missing required fields: type, id, title" });
+      return;
+    }
+
+    // Valid type
+    const allowedTypes = ["epic", "feature", "spike"] as const;
+    if (!allowedTypes.includes(type)) {
+      res.status(400).json({ error: `Invalid type: must be one of ${allowedTypes.join(", ")}` });
+      return;
+    }
+
+    // Parent required for feature/spike
+    if ((type === "feature" || type === "spike") && !parent) {
+      res.status(400).json({ error: `Parent is required for type "${type}"` });
+      return;
+    }
+
+    // Duplicate ID check
+    if (cachedIndex.has(id)) {
+      res.status(409).json({ error: `Node with id "${id}" already exists` });
+      return;
+    }
+
+    // Parent existence and type check
+    let resolvedProject: string | undefined;
+    if (parent) {
+      const parentNode = cachedIndex.get(parent);
+      if (!parentNode) {
+        res.status(404).json({ error: `Parent node "${parent}" not found` });
+        return;
+      }
+      if (parentNode.meta.type !== "epic") {
+        res.status(400).json({ error: `Parent node "${parent}" must be an epic` });
+        return;
+      }
+      resolvedProject = parentNode.meta.project;
+    }
+
+    // Resolve project
+    if (!resolvedProject) {
+      const projectKeys = Object.keys(cachedConfig.projects);
+      if (projectKeys.length === 1) {
+        resolvedProject = projectKeys[0];
+      } else {
+        res.status(400).json({ error: "Cannot resolve project: no parent specified and multiple projects in vault" });
+        return;
+      }
+    }
+
+    try {
+      const node = createNode(cachedVaultRoot, cachedConfig, {
+        id,
+        project: resolvedProject,
+        type,
+        title,
+        parent: parent ?? undefined,
+      });
+
+      // If description provided, populate the Intent section and re-write
+      if (description) {
+        node.body = node.body.replace(
+          "## Intent\n\n",
+          `## Intent\n\n${description}\n`,
+        );
+        writeNode(node);
+      }
+
+      // Update cache immediately
+      cachedNodes.push(node);
+      cachedIndex.set(node.meta.id, node);
+
+      res.status(201).json({
+        id: node.meta.id,
+        type: node.meta.type,
+        status: node.meta.status,
+        project: node.meta.project,
+        parent: node.meta.parent,
+        filepath: path.relative(cachedVaultRoot, node.filepath),
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });

@@ -269,6 +269,165 @@
       font-size: 11px;
       margin: 0 2px;
     }
+
+    /* --- Sidebar header with plus button --- */
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .btn-add-node {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--accent);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .btn-add-node:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* --- Creation form (replaces detail panel) --- */
+    .create-panel {
+      width: 320px;
+      min-width: 320px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      padding: 20px;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .create-panel.open { display: flex; }
+
+    .create-panel h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .create-panel label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+
+    .create-panel .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .create-panel input,
+    .create-panel textarea,
+    .create-panel select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .create-panel input:focus,
+    .create-panel textarea:focus,
+    .create-panel select:focus {
+      border-color: var(--accent);
+    }
+
+    .create-panel textarea { resize: vertical; min-height: 60px; }
+
+    .create-panel .type-toggle {
+      display: flex;
+      gap: 4px;
+    }
+
+    .create-panel .type-toggle .pill { flex: 1; text-align: center; }
+
+    .create-panel .parent-field {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .create-panel .parent-field input { flex: 1; }
+
+    .btn-pick-parent {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--accent);
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+
+    .btn-pick-parent:hover { background: var(--accent); color: #fff; }
+    .btn-pick-parent.active { background: var(--accent); color: #fff; }
+
+    .create-panel .id-error {
+      font-size: 11px;
+      color: #fca5a5;
+      min-height: 14px;
+    }
+
+    .create-panel .form-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .create-panel .form-actions button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .create-panel .form-actions button:hover { opacity: 0.85; }
+    .btn-create { background: var(--accent); color: #fff; }
+    .btn-create:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-cancel { background: var(--surface-alt); color: var(--text); }
+
+    /* --- Pick mode banner --- */
+    .pick-mode-banner {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #fff;
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 100;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .pick-mode-banner.visible { display: block; }
   </style>
 </head>
 <body>
@@ -276,7 +435,10 @@
   <div class="panels">
     <!-- Left Sidebar -->
     <aside class="sidebar">
-      <h1>GraphPilot</h1>
+      <div class="sidebar-header">
+        <h1>GraphPilot</h1>
+        <button class="btn-add-node" id="btn-add-node" title="Create new node">+</button>
+      </div>
 
       <div class="filter-group" id="status-filters">
         <h3>Status</h3>
@@ -323,6 +485,7 @@
     <!-- Center Graph Canvas -->
     <main class="graph-container">
       <div id="cy"></div>
+      <div class="pick-mode-banner" id="pick-mode-banner">Click an epic to select as parent</div>
     </main>
 
     <!-- Right Detail Panel -->
@@ -345,6 +508,52 @@
       <div class="relations" id="detail-children"></div>
       <div class="detail-actions" id="detail-actions"></div>
     </aside>
+
+    <!-- Right Create Panel -->
+    <aside class="create-panel" id="create-panel">
+      <div class="detail-header">
+        <h2 id="create-panel-title">Create Node</h2>
+        <button class="btn-close" id="create-close">&times;</button>
+      </div>
+
+      <div class="form-group">
+        <label>Type</label>
+        <div class="type-toggle" id="create-type-toggle">
+          <span class="pill active" data-create-type="epic">Epic</span>
+          <span class="pill" data-create-type="feature">Feature</span>
+          <span class="pill" data-create-type="spike">Spike</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Parent</label>
+        <div class="parent-field">
+          <input type="text" id="create-parent" placeholder="Parent ID (optional for epics)">
+          <button class="btn-pick-parent" id="btn-pick-parent">Pick</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="create-title" placeholder="Node title">
+      </div>
+
+      <div class="form-group">
+        <label>ID</label>
+        <input type="text" id="create-id" placeholder="auto-generated-slug">
+        <span class="id-error" id="create-id-error"></span>
+      </div>
+
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="create-description" placeholder="Brief description..."></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn-cancel" id="create-cancel">Cancel</button>
+        <button class="btn-create" id="create-submit">Create</button>
+      </div>
+    </aside>
   </div>
 
   <footer class="hint-bar">
@@ -354,5 +563,6 @@
   <script src="graph.js"></script>
   <script src="actions.js"></script>
   <script src="filters.js"></script>
+  <script src="create.js"></script>
 </body>
 </html>
