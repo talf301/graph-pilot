@@ -6,12 +6,14 @@
     planned: '#95a5a6', designing: '#3b82f6', ready: '#f1c40f',
     'in-progress': '#9b59b6', dispatching: '#f97316', done: '#22c55e',
     blocked: '#ef4444',
+    open: '#ef4444', fixed: '#22c55e',
   };
   var STATUS_BG = {
     planned: 'rgba(149,165,166,0.15)', designing: 'rgba(59,130,246,0.15)',
     ready: 'rgba(241,196,15,0.15)', 'in-progress': 'rgba(155,89,182,0.15)',
     dispatching: 'rgba(249,115,22,0.15)', done: 'rgba(34,197,94,0.15)',
     blocked: 'rgba(239,68,68,0.15)',
+    open: 'rgba(239,68,68,0.15)', fixed: 'rgba(34,197,94,0.15)',
   };
   var TYPE_SHAPES = {
     epic:             { shape: 'round-rectangle', width: 170, height: 60 },
@@ -19,6 +21,7 @@
     task:             { shape: 'ellipse',         width: 95,  height: 38 },
     spike:            { shape: 'diamond',         width: 60,  height: 60 },
     'dispatch-task':  { shape: 'ellipse',         width: 85,  height: 34 },
+    bug:              { shape: 'ellipse',         width: 80,  height: 32 },
   };
 
   var LAYOUTS = {
@@ -61,6 +64,11 @@
         'transition-property': 'opacity, background-color, border-color',
         'transition-duration': '200ms', 'overlay-opacity': 0,
       }},
+      // Bug nodes: red border override
+      { selector: 'node[type="bug"]', style: {
+        'border-color': '#ef4444',
+        'background-color': 'rgba(239,68,68,0.15)',
+      }},
       // Edge base
       { selector: 'edge', style: {
         width: 2, 'curve-style': 'bezier', 'target-arrow-shape': 'triangle', 'arrow-scale': 0.8,
@@ -73,6 +81,10 @@
       // Depends-on: dashed orange arrow to dependency
       { selector: 'edge[edgeType="depends-on"]', style: {
         'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b', 'line-style': 'dashed',
+      }},
+      // Bug parent edges: solid red
+      { selector: 'edge[edgeType="parent"][?isBugEdge]', style: {
+        'line-color': '#ef4444', 'target-arrow-color': '#ef4444', 'line-style': 'solid',
       }},
       // Dimmed (focus mode)
       { selector: '.dimmed', style: { opacity: 0.2 }},
@@ -176,19 +188,24 @@
   // --- Graph update (called from WebSocket or REST fetch) ---
   function updateGraph(nodes, edges) {
     var elements = [];
+    var nodeTypeMap = {};
     (nodes || []).forEach(function (n) {
+      nodeTypeMap[n.id] = n.type || 'task';
       elements.push({ group: 'nodes', data: {
         id: n.id, label: n.label || n.id, type: n.type || 'task',
         status: n.status || 'planned', project: n.project || '',
         description: n.description || '', body: n.body || '',
         filepath: n.filepath || '', parent_node: n.parent || null,
         deps: n.deps || [], children: n.children || [],
+        severity: n.severity || '',
       }});
     });
     (edges || []).forEach(function (e) {
+      var isBugEdge = nodeTypeMap[e.source] === 'bug';
       elements.push({ group: 'edges', data: {
         id: e.id || (e.source + '-' + e.target + '-' + (e.edgeType || 'parent')),
         source: e.source, target: e.target, edgeType: e.edgeType || 'parent',
+        isBugEdge: isBugEdge,
       }});
     });
 
@@ -210,6 +227,11 @@
     // Update filter pills from new data
     if (window.GraphPilotFilters && window.GraphPilotFilters.updateFromGraph) {
       window.GraphPilotFilters.updateFromGraph(nodes || []);
+    }
+
+    // Update bug drawer
+    if (window.GraphPilotBugs && window.GraphPilotBugs.updateFromGraph) {
+      window.GraphPilotBugs.updateFromGraph(nodes || []);
     }
 
     runLayout();

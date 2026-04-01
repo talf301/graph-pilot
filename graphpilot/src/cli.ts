@@ -142,7 +142,7 @@ async function cmdAddProject(args: string[]) {
 
   // Create project node directory structure
   const projectDir = path.join(vaultRoot, config.root, name);
-  for (const sub of ["epics", "features", "tasks", "spikes"]) {
+  for (const sub of ["epics", "features", "tasks", "spikes", "bugs"]) {
     fs.mkdirSync(path.join(projectDir, sub), { recursive: true });
   }
 
@@ -161,8 +161,8 @@ async function cmdCreate(args: string[]) {
     die("Usage: gp create <type> <id> [title] --project <name> [--parent [[ref]]] [--dep [[ref]]]");
   }
 
-  if (!["epic", "feature", "task", "spike", "dispatch-task"].includes(type)) {
-    die(`Unknown type: ${type}. Use epic, feature, task, spike, or dispatch-task.`);
+  if (!["epic", "feature", "task", "spike", "bug", "dispatch-task"].includes(type)) {
+    die(`Unknown type: ${type}. Use epic, feature, task, spike, bug, or dispatch-task.`);
   }
 
   // Resolve project — use flag, or infer if only one project exists
@@ -368,7 +368,11 @@ async function cmdLaunch(args: string[]) {
   target.meta.status = "in-progress";
   writeNode(target);
 
-  info(`Launching Claude Code for: ${target.meta.id}`);
+  if ((target.meta.type as string) === "bug") {
+    info(`Launching Claude Code to fix bug: ${target.meta.id}`);
+  } else {
+    info(`Launching Claude Code for: ${target.meta.id}`);
+  }
   info(`Project: ${target.meta.project} → ${projectRoot}`);
   info(`Context: ${contextNodes.length} nodes assembled`);
   console.log("");

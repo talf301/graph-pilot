@@ -68,8 +68,10 @@ export function toAsciiTree(nodes: GraphNode[]): string {
     planned: "○",
     designing: "◐",
     ready: "◑",
+    open: "⚠",
     "in-progress": "◕",
     dispatching: "⊙",
+    fixed: "✔",
     done: "●",
     blocked: "✗",
   };
@@ -110,8 +112,10 @@ const STATUS_COLOR: Record<NodeStatus, string> = {
   planned: "0",
   designing: "5",
   ready: "3",
+  open: "1",
   "in-progress": "6",
   dispatching: "6",
+  fixed: "4",
   done: "4",
   blocked: "1",
 };
@@ -122,6 +126,7 @@ const NODE_SIZE: Record<NodeType, { width: number; height: number }> = {
   feature: { width: 300, height: 150 },
   task: { width: 250, height: 120 },
   spike: { width: 250, height: 120 },
+  bug: { width: 250, height: 120 },
   "dispatch-task": { width: 200, height: 100 },
 };
 
