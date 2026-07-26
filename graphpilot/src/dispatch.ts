@@ -33,19 +33,18 @@ function moveToTrash(vaultRoot: string, filepath: string): string {
 }
 
 /**
- * True if the body has anything beyond what gpDispatch generated
- * ("# <title>" plus the dispatch description paragraph).
- * ponytail: heuristic — headings/bullets/checkboxes added after the first
- * paragraph count as work. Tighten only if it produces false positives.
+ * True if someone has structured this note by hand. gpDispatch writes exactly
+ * one "# <title>" heading and the dt description — no extra headings, no
+ * checkboxes — so either of those means a human worked in here.
+ *
+ * ponytail: deliberately biased toward false negatives. A plain appended
+ * paragraph slips through, but children now go to .trash rather than being
+ * deleted, so a miss is recoverable — whereas a false positive would break
+ * --force for good and push the owner toward `rm`.
  */
 function hasHandWrittenContent(body: string): boolean {
-  const lines = body.split("\n");
-  let i = 0;
-  while (i < lines.length && lines[i].trim() === "") i++;
-  if (lines[i]?.startsWith("# ")) i++; // title
-  while (i < lines.length && lines[i].trim() === "") i++;
-  while (i < lines.length && lines[i].trim() !== "") i++; // description paragraph
-  return lines.slice(i).some((l) => l.trim() !== "");
+  const headings = body.match(/^#{1,6} \S/gm)?.length ?? 0;
+  return headings > 1 || /^\s*[-*+] \[[ xX]\]/m.test(body);
 }
 
 /**

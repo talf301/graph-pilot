@@ -269,3 +269,17 @@ test("gp collapse --force refuses to bin unfinished hand-written work", async ()
   await assert.rejects(() => gpCollapse(vault, "parent", true), /hand-written notes/);
   assert.ok(fs.existsSync(childPath));
 });
+
+test("gp collapse --force allows a multi-paragraph dispatch description", async () => {
+  const { vault, childPath } = collapseFixture();
+  fs.writeFileSync(
+    childPath,
+    fs
+      .readFileSync(childPath, "utf-8")
+      .replace("status: done", "status: in-progress")
+      .replace("Description.", "First para.\n\nSecond para.")
+  );
+
+  await gpCollapse(vault, "parent", true);
+  assert.ok(!fs.existsSync(childPath), "description-only child should collapse");
+});
