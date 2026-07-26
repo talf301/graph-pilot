@@ -285,13 +285,26 @@ export function findReady(
   nodes: GraphNode[],
   index: Map<string, GraphNode>
 ): GraphNode[] {
+  // Statuses that mean "not up for grabs": finished, in flight, or not yet
+  // scoped. `open` (bug reported, unstarted) and `planned` are fair game.
+  const notActionable: NodeStatus[] = [
+    "done",
+    "fixed",
+    "in-progress",
+    "dispatching",
+    "designing",
+  ];
+
   return nodes.filter((node) => {
     if (node.meta.status === "ready") return true;
-    if (node.meta.status === "done" || node.meta.status === "in-progress")
-      return false;
+    if (notActionable.includes(node.meta.status)) return false;
 
     const deps = node.meta["depends-on"] ?? [];
-    if (deps.length === 0) return false;
+    // A node someone hand-marked blocked with nothing to wait on stays
+    // blocked — there is no dependency to re-evaluate.
+    if (node.meta.status === "blocked" && deps.length === 0) return false;
+
+    // No deps is the most ready a node can be.
     return deps.every((dep) => {
       const depNode = resolveRef(dep, index);
       return depNode?.meta.status === "done";
