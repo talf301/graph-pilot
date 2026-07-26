@@ -156,9 +156,23 @@ export async function gpDispatch(
   const created: string[] = [];
   const today = new Date().toISOString().slice(0, 10);
 
+  // Check every target path up front so we never half-create the set.
+  const childPaths = new Map(
+    parentTask.children.map((c) => [
+      c.id,
+      path.join(dispatchDir, `${slugify(c.title)}-${c.id}.md`),
+    ])
+  );
+  const clashes = [...childPaths.values()].filter((p) => fs.existsSync(p));
+  if (clashes.length > 0) {
+    throw new Error(
+      `Refusing to overwrite existing notes:\n${clashes.join("\n")}`
+    );
+  }
+
   for (const child of parentTask.children) {
     const childId = `${slugify(child.title)}-${child.id}`;
-    const filepath = path.join(dispatchDir, `${childId}.md`);
+    const filepath = childPaths.get(child.id)!;
 
     const meta: NodeFrontmatter = {
       gp: true,

@@ -275,6 +275,12 @@ export function createNode(
   fs.mkdirSync(dir, { recursive: true });
 
   const filepath = path.join(dir, `${opts.id}.md`);
+  if (fs.existsSync(filepath)) {
+    throw new Error(
+      `A note with id "${opts.id}" already exists: ${filepath}\n` +
+        `Pick a different id, or edit the existing note.`
+    );
+  }
   const today = new Date().toISOString().slice(0, 10);
 
   const meta: NodeFrontmatter = {
