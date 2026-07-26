@@ -264,7 +264,14 @@ export async function gpSyncChild(
     // Non-fatal: summary stays null
   }
 
-  writeNode(target);
+  // Completion hook: never break Dispatch, even if the note is stale.
+  try {
+    writeNode(target);
+  } catch (err) {
+    console.warn(
+      `gp: could not update ${target.filepath}: ${err instanceof Error ? err.message : err}`
+    );
+  }
 }
 
 /**

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import matter from "gray-matter";
 import { glob } from "glob";
 import YAML from "yaml";
@@ -81,6 +82,9 @@ export function resolveProject(
  * Returns null if the file isn't a graphpilot node (no gp: true).
  */
 export function readNode(filepath: string): GraphNode | null {
+  // stat *before* read: recording an older mtime than our content makes a
+  // later write refuse (safe); a newer one would let it clobber.
+  const mtimeMs = fs.statSync(filepath).mtimeMs;
   const raw = fs.readFileSync(filepath, "utf-8");
   const { data, content } = matter(raw);
 
@@ -95,23 +99,68 @@ export function readNode(filepath: string): GraphNode | null {
     "dispatch-run": artifacts["dispatch-run"] ?? null,
   };
 
+  const meta = data as NodeFrontmatter;
   return {
-    meta: data as NodeFrontmatter,
+    meta,
     body: content,
     filepath,
+    mtimeMs,
+    orig: { meta: structuredClone(meta), body: content },
   };
 }
 
 /**
- * Write a GraphNode back to disk, preserving body content
+ * Write a GraphNode back to disk, preserving body content.
+ *
+ * - no-ops when nothing changed (avoids `updated` churn in a synced vault)
+ * - refuses when the file changed on disk since we read it (Obsidian saved)
+ * - writes to a temp file in the same dir and renames, so a crash mid-write
+ *   can never truncate the note
  */
 export function writeNode(node: GraphNode): void {
-  const updated = {
-    ...node.meta,
-    updated: new Date().toISOString().slice(0, 10),
-  };
-  const output = matter.stringify(node.body, updated);
-  fs.writeFileSync(node.filepath, output, "utf-8");
+  if (
+    node.orig &&
+    node.body === node.orig.body &&
+    isDeepStrictEqual(node.meta, node.orig.meta)
+  ) {
+    return;
+  }
+
+  if (fs.existsSync(node.filepath)) {
+    if (node.mtimeMs === undefined) {
+      throw new Error(
+        `Refusing to overwrite a note that was not read first: ${node.filepath}`
+      );
+    }
+    if (fs.statSync(node.filepath).mtimeMs !== node.mtimeMs) {
+      throw new Error(
+        `${node.filepath} changed on disk since it was read ` +
+          `(Obsidian saved it?). Nothing written — re-run the command.`
+      );
+    }
+  }
+
+  node.meta = { ...node.meta, updated: new Date().toISOString().slice(0, 10) };
+  const output = matter.stringify(node.body, node.meta);
+
+  const tmp = path.join(
+    path.dirname(node.filepath),
+    `.${path.basename(node.filepath)}.gp-tmp-${process.pid}`
+  );
+  try {
+    fs.writeFileSync(tmp, output, "utf-8");
+    fs.renameSync(tmp, node.filepath);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* already gone */
+    }
+    throw err;
+  }
+
+  node.mtimeMs = fs.statSync(node.filepath).mtimeMs;
+  node.orig = { meta: structuredClone(node.meta), body: node.body };
 }
 
 /**

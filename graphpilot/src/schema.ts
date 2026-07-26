@@ -112,6 +112,19 @@ export interface GraphNode {
 
   /** Absolute path to the .md file on disk */
   filepath: string;
+
+  /**
+   * mtime of the file when it was read (or last written by us).
+   * Undefined for nodes that were never on disk. writeNode uses this to
+   * refuse writes over an edit Obsidian made in the meantime.
+   */
+  mtimeMs?: number;
+
+  /**
+   * Snapshot of meta/body as read, so writeNode can tell "nothing changed"
+   * from "changed" and skip pointless rewrites (and `updated` bumps).
+   */
+  orig?: { meta: NodeFrontmatter; body: string };
 }
 
 // --- Config (graphpilot.yaml at vault root) ---
