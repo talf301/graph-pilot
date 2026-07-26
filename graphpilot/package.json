@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "tsc && node --test dist/*.test.js",
     "dev": "tsc --watch",
     "prepare": "tsc",
     "link": "npm run build && npm link"
