@@ -11,6 +11,8 @@ import {
   type ProjectConfig,
   type NodeType,
   type NodeStatus,
+  NodeType as NodeTypeEnum,
+  NodeStatus as NodeStatusEnum,
   DEFAULT_CONFIG,
   parseWikilink,
   nodeDir,
@@ -77,29 +79,112 @@ export function resolveProject(
 
 // ── Node I/O ─────────────────────────────────────────────────────
 
+const NODE_TYPES = Object.values(NodeTypeEnum) as string[];
+const NODE_STATUSES = Object.values(NodeStatusEnum) as string[];
+
+function badStringList(value: unknown, name: string): string | null {
+  if (!Array.isArray(value)) {
+    return `"${name}" must be a list, got ${JSON.stringify(value)}`;
+  }
+  const i = value.findIndex((v) => typeof v !== "string");
+  if (i < 0) return null;
+  const v = value[i];
+  // `depends-on: [[foo]]` is YAML for a nested list, not a wikilink.
+  const hint = Array.isArray(v)
+    ? `. Looks like an unquoted wikilink — write: - "[[${v.join("")}]]"`
+    : "";
+  return `"${name}[${i}]" must be a string, got ${JSON.stringify(v)}${hint}`;
+}
+
+/**
+ * Check and normalize hand-written frontmatter in place.
+ * Returns a human-readable problem, or null if the node is usable.
+ *
+ * Deliberately lenient: missing optional fields are filled in, unknown keys
+ * (Obsidian's `tags`, the dashboard's `severity`) are left alone. Only wrong
+ * *types* and unknown enum members are rejected.
+ */
+export function validateFrontmatter(
+  data: Record<string, unknown>
+): string | null {
+  if (typeof data.id !== "string" || data.id.trim() === "") {
+    return `"id" must be a non-empty string, got ${JSON.stringify(data.id)}`;
+  }
+  if (typeof data.type !== "string" || !NODE_TYPES.includes(data.type)) {
+    return `unknown type ${JSON.stringify(data.type)} — expected one of: ${NODE_TYPES.join(", ")}`;
+  }
+  if (typeof data.status !== "string" || !NODE_STATUSES.includes(data.status)) {
+    return `unknown status ${JSON.stringify(data.status)} — expected one of: ${NODE_STATUSES.join(", ")}`;
+  }
+
+  data.parent = data.parent ?? null;
+  data.session = data.session ?? null;
+  data["depends-on"] = data["depends-on"] ?? [];
+  data.blocks = data.blocks ?? [];
+
+  const a = (
+    typeof data.artifacts === "object" && data.artifacts !== null
+      ? data.artifacts
+      : {}
+  ) as Record<string, unknown>;
+  data.artifacts = {
+    ...a,
+    prs: a.prs ?? [],
+    specs: a.specs ?? [],
+    commits: a.commits ?? [],
+    "dispatch-run": a["dispatch-run"] ?? null,
+  };
+
+  const artifacts = data.artifacts as Record<string, unknown>;
+  for (const [name, value] of [
+    ["depends-on", data["depends-on"]],
+    ["blocks", data.blocks],
+    ["artifacts.prs", artifacts.prs],
+    ["artifacts.specs", artifacts.specs],
+    ["artifacts.commits", artifacts.commits],
+  ] as const) {
+    const problem = badStringList(value, name);
+    if (problem) return problem;
+  }
+
+  return null;
+}
+
 /**
  * Parse a single .md file into a GraphNode.
- * Returns null if the file isn't a graphpilot node (no gp: true).
+ * Returns null if the file isn't a graphpilot node (no gp: true) or if its
+ * frontmatter is unusable — one bad note must not break every command.
  */
 export function readNode(filepath: string): GraphNode | null {
   // stat *before* read: recording an older mtime than our content makes a
   // later write refuse (safe); a newer one would let it clobber.
   const mtimeMs = fs.statSync(filepath).mtimeMs;
   const raw = fs.readFileSync(filepath, "utf-8");
-  const { data, content } = matter(raw);
+
+  let data: Record<string, unknown>;
+  let content: string;
+  try {
+    ({ data, content } = matter(raw) as unknown as {
+      data: Record<string, unknown>;
+      content: string;
+    });
+  } catch (err) {
+    console.warn(
+      `gp: skipping ${filepath}: unparseable frontmatter — ${err instanceof Error ? err.message : err}`
+    );
+    return null;
+  }
 
   // Only treat as a gp node if explicitly marked
   if (!data.gp) return null;
 
-  const artifacts = data.artifacts ?? {};
-  data.artifacts = {
-    prs: artifacts.prs ?? [],
-    specs: artifacts.specs ?? [],
-    commits: artifacts.commits ?? [],
-    "dispatch-run": artifacts["dispatch-run"] ?? null,
-  };
+  const problem = validateFrontmatter(data);
+  if (problem) {
+    console.warn(`gp: skipping ${filepath}: ${problem}`);
+    return null;
+  }
 
-  const meta = data as NodeFrontmatter;
+  const meta = data as unknown as NodeFrontmatter;
   return {
     meta,
     body: content,
