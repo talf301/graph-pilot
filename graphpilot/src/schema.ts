@@ -159,10 +159,26 @@ export const DEFAULT_CONFIG: GpConfig = {
 
 // --- Helpers ---
 
-/** Extract the node id (slug) from a wikilink like "[[Some Node]]" */
+/**
+ * Extract the node id (slug) from a wikilink.
+ *
+ * Handles everything Obsidian's `[[` autocomplete produces:
+ *   [[note]]  ![[note]]  [[note|Alias]]  [[note#Heading]]  [[note#^block]]
+ *   [[folder/sub/note]]  and any combination of those.
+ * A bare string (already an id) is passed through, trimmed.
+ */
 export function parseWikilink(link: string): string {
-  const match = link.match(/^\[\[(.+)\]\]$/);
-  return match ? match[1] : link;
+  const match = link.trim().match(/^!?\[\[([^\]]+)\]\]$/);
+  let inner = (match ? match[1] : link).trim();
+  inner = inner.split("|")[0]; // alias
+  inner = inner.split("#")[0]; // heading / block anchor
+  inner = inner.split("/").pop() ?? inner; // path segments
+  return inner.trim();
+}
+
+/** Wikilink (or bare ref) → node id slug: "[[Some Node|x]]" → "some-node" */
+export function refToId(ref: string): string {
+  return parseWikilink(ref).toLowerCase().replace(/\s+/g, "-");
 }
 
 /** Create a wikilink from a display name */

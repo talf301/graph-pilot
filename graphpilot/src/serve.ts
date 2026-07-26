@@ -9,6 +9,7 @@ import { loadAllNodes, indexById, findVaultRoot, readNode, createNode, writeNode
 import { ensureSession, spawnWindow, checkTmux } from "./tmux.js";
 import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
+import { refToId } from "./schema.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -116,14 +117,6 @@ function buildGraphPayload(nodes: GraphNode[], vaultRoot: string): GraphPayload 
   }
 
   return { nodes: nodePayloads, edges };
-}
-
-function refToId(ref: string): string {
-  return ref
-    .replace(/^\[\[/, "")
-    .replace(/\]\]$/, "")
-    .toLowerCase()
-    .replace(/\s+/g, "-");
 }
 
 // ── File watching ────────────────────────────────────────────────

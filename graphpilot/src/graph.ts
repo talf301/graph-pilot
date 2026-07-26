@@ -1,4 +1,4 @@
-import { type GraphNode, type NodeStatus, type NodeType } from "./schema.js";
+import { type GraphNode, type NodeStatus, type NodeType, refToId } from "./schema.js";
 
 /**
  * Generate a Mermaid flowchart from the node graph.
@@ -636,14 +636,6 @@ export function toOverviewCanvas(nodes: GraphNode[], vaultRoot: string): string 
 
 function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9]/g, "_");
-}
-
-function refToId(ref: string): string {
-  return ref
-    .replace(/^\[\[/, "")
-    .replace(/\]\]$/, "")
-    .toLowerCase()
-    .replace(/\s+/g, "-");
 }
 
 function shapeFor(node: GraphNode): { open: string; close: string } {

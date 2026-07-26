@@ -1,5 +1,5 @@
 import path from "node:path";
-import { type GraphNode, type NodeFrontmatter } from "./schema.js";
+import { type GraphNode, type NodeFrontmatter, refToId } from "./schema.js";
 
 /**
  * Assemble a context document from a target node and its graph neighbors.
@@ -199,11 +199,5 @@ function isAncestor(
 }
 
 function slugMatch(ref: string, node: GraphNode): boolean {
-  const slug = node.meta.id.toLowerCase();
-  const refSlug = ref
-    .replace(/^\[\[/, "")
-    .replace(/\]\]$/, "")
-    .toLowerCase()
-    .replace(/\s+/g, "-");
-  return slug === refSlug;
+  return node.meta.id.toLowerCase() === refToId(ref);
 }
