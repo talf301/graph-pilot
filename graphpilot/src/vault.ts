@@ -115,6 +115,18 @@ export function writeNode(node: GraphNode): void {
 }
 
 /**
+ * Every markdown file in the vault (dotdirs like .obsidian/.trash are
+ * excluded by glob's default dot:false).
+ */
+export function allMarkdownFiles(vaultRoot: string): Promise<string[]> {
+  return glob("**/*.md", {
+    cwd: vaultRoot,
+    ignore: ["node_modules/**", "_gp-templates/**"],
+    absolute: true,
+  });
+}
+
+/**
  * Scan the vault for all graphpilot nodes (files with gp: true).
  * Optionally filter to a specific project.
  */
@@ -122,15 +134,7 @@ export async function loadAllNodes(
   vaultRoot: string,
   opts?: { project?: string }
 ): Promise<GraphNode[]> {
-  const mdFiles = await glob("**/*.md", {
-    cwd: vaultRoot,
-    ignore: [
-      "node_modules/**",
-      ".obsidian/**",
-      "_gp-templates/**",
-    ],
-    absolute: true,
-  });
+  const mdFiles = await allMarkdownFiles(vaultRoot);
 
   const nodes: GraphNode[] = [];
   for (const filepath of mdFiles) {
