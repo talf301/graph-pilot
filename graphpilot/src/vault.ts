@@ -164,7 +164,12 @@ export function readNode(filepath: string): GraphNode | null {
   let data: Record<string, unknown>;
   let content: string;
   try {
-    ({ data, content } = matter(raw) as unknown as {
+    // Pass an options object to bypass gray-matter's global cache: it is
+    // keyed by file content, hands back a shallow copy that shares `data`,
+    // and we mutate `data`. Two notes with identical text (or a re-read after
+    // we changed a node) would otherwise see each other's edits — and the
+    // cache never evicts, which matters for the long-running `gp serve`.
+    ({ data, content } = matter(raw, {}) as unknown as {
       data: Record<string, unknown>;
       content: string;
     });
