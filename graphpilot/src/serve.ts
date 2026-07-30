@@ -7,7 +7,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import matter from "gray-matter";
 import { loadAllNodes, indexById, findVaultRoot, readNode, createNode, writeNode, findConfigPath, loadConfig } from "./vault.js";
-import { ensureSession, spawnWindow, checkTmux, listWindows, windowForNode } from "./tmux.js";
+import { ensureSession, spawnWindow, checkTmux, listWindows, windowForNode, createViewSession, killViewSession } from "./tmux.js";
 import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
 import { refToId } from "./schema.js";
@@ -414,17 +414,19 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   wss = new WebSocketServer({ server: httpServer });
 
   wss.on("connection", (ws: WebSocket) => {
-    const terminals = new Map<string, IPty>();
+    const terminals = new Map<string, { pty: IPty; session: string }>();
+    let nextViewId = 0;
 
     const closeTerminal = (nodeId: string) => {
-      const terminal = terminals.get(nodeId);
-      if (!terminal) return;
+      const view = terminals.get(nodeId);
+      if (!view) return;
       terminals.delete(nodeId);
       try {
-        terminal.kill();
+        view.pty.kill();
       } catch {
         // The pty may already have exited.
       }
+      killViewSession(view.session);
     };
 
     const sendTerminal = (message: Record<string, unknown>) => {
@@ -452,16 +454,22 @@ export async function startServer(opts: ServeOpts): Promise<void> {
           return;
         }
 
+        const sessionName = `gp-view-${nextViewId++}`;
         let terminal: IPty;
         try {
-          terminal = spawnPty("tmux", ["attach", "-t", `graphpilot:${windowName}`], {
+          createViewSession(sessionName, windowName);
+          const env = { ...process.env } as Record<string, string>;
+          delete env.TMUX;
+          delete env.TMUX_PANE;
+          terminal = spawnPty("tmux", ["attach", "-t", sessionName], {
             name: "xterm-256color",
             cols: 80,
             rows: 24,
             cwd: process.cwd(),
-            env: process.env as Record<string, string>,
+            env,
           });
         } catch (err: unknown) {
+          killViewSession(sessionName);
           sendTerminal({
             type: "term:exit",
             nodeId,
@@ -469,19 +477,22 @@ export async function startServer(opts: ServeOpts): Promise<void> {
           });
           return;
         }
-        terminals.set(nodeId, terminal);
+        terminals.set(nodeId, { pty: terminal, session: sessionName });
         terminal.onData((data) => sendTerminal({ type: "term:data", nodeId, data }));
         terminal.onExit(({ exitCode }) => {
-          if (terminals.get(nodeId) === terminal) terminals.delete(nodeId);
+          if (terminals.get(nodeId)?.pty === terminal) {
+            terminals.delete(nodeId);
+            killViewSession(sessionName);
+          }
           sendTerminal({ type: "term:exit", nodeId, exitCode });
         });
       } else if (type === "term:input" && typeof message.data === "string") {
-        terminals.get(nodeId)?.write(message.data);
+        terminals.get(nodeId)?.pty.write(message.data);
       } else if (type === "term:resize") {
         const { cols, rows } = message;
         if (typeof cols === "number" && typeof rows === "number"
           && Number.isInteger(cols) && Number.isInteger(rows) && cols > 0 && rows > 0) {
-          terminals.get(nodeId)?.resize(cols, rows);
+          terminals.get(nodeId)?.pty.resize(cols, rows);
         }
       }
     });
