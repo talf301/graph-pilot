@@ -8,7 +8,80 @@ import {
   type NodeType,
   parseWikilink,
 } from "./schema.js";
-import { writeNode, loadAllNodes, indexById, resolveRef } from "./vault.js";
+import {
+  writeNode,
+  loadAllNodes,
+  indexById,
+  resolveRef,
+  allMarkdownFiles,
+} from "./vault.js";
+
+/**
+ * Move a note into the vault's .trash/ instead of unlinking it, so Obsidian's
+ * "Deleted files" pane can restore it. Returns the new path.
+ */
+function moveToTrash(vaultRoot: string, filepath: string): string {
+  const trashDir = path.join(vaultRoot, ".trash");
+  fs.mkdirSync(trashDir, { recursive: true });
+  let dest = path.join(trashDir, path.basename(filepath));
+  if (fs.existsSync(dest)) {
+    const ext = path.extname(dest);
+    dest = `${dest.slice(0, -ext.length)}-${Date.now()}${ext}`;
+  }
+  fs.renameSync(filepath, dest);
+  return dest;
+}
+
+/**
+ * True if someone has structured this note by hand. gpDispatch writes exactly
+ * one "# <title>" heading and the dt description — no extra headings, no
+ * checkboxes — so either of those means a human worked in here.
+ *
+ * ponytail: deliberately biased toward false negatives. A plain appended
+ * paragraph slips through, but children now go to .trash rather than being
+ * deleted, so a miss is recoverable — whereas a false positive would break
+ * --force for good and push the owner toward `rm`.
+ */
+function hasHandWrittenContent(body: string): boolean {
+  const headings = body.match(/^#{1,6} \S/gm)?.length ?? 0;
+  return headings > 1 || /^\s*[-*+] \[[ xX]\]/m.test(body);
+}
+
+/**
+ * Notes elsewhere in the vault that wikilink to any of `targets`.
+ * ponytail: reads every .md in the vault; fine for a personal vault, index it
+ * if that ever gets slow.
+ */
+async function findInboundLinks(
+  vaultRoot: string,
+  targets: GraphNode[],
+  ignorePaths: Set<string>
+): Promise<Map<string, string[]>> {
+  const names = new Map<string, string>(); // link name -> child id
+  for (const t of targets) {
+    names.set(t.meta.id, t.meta.id);
+    names.set(path.basename(t.filepath, ".md"), t.meta.id);
+  }
+
+  const inbound = new Map<string, string[]>();
+  for (const file of await allMarkdownFiles(vaultRoot)) {
+    if (ignorePaths.has(file)) continue;
+    let text: string;
+    try {
+      text = fs.readFileSync(file, "utf-8");
+    } catch {
+      continue;
+    }
+    for (const m of text.matchAll(/!?\[\[[^\]\n]+\]\]/g)) {
+      const id = names.get(parseWikilink(m[0]));
+      if (!id) continue;
+      const list = inbound.get(id) ?? [];
+      if (!list.includes(file)) list.push(file);
+      inbound.set(id, list);
+    }
+  }
+  return inbound;
+}
 
 interface DispatchTask {
   id: string;
@@ -82,9 +155,23 @@ export async function gpDispatch(
   const created: string[] = [];
   const today = new Date().toISOString().slice(0, 10);
 
+  // Check every target path up front so we never half-create the set.
+  const childPaths = new Map(
+    parentTask.children.map((c) => [
+      c.id,
+      path.join(dispatchDir, `${slugify(c.title)}-${c.id}.md`),
+    ])
+  );
+  const clashes = [...childPaths.values()].filter((p) => fs.existsSync(p));
+  if (clashes.length > 0) {
+    throw new Error(
+      `Refusing to overwrite existing notes:\n${clashes.join("\n")}`
+    );
+  }
+
   for (const child of parentTask.children) {
     const childId = `${slugify(child.title)}-${child.id}`;
-    const filepath = path.join(dispatchDir, `${childId}.md`);
+    const filepath = childPaths.get(child.id)!;
 
     const meta: NodeFrontmatter = {
       gp: true,
@@ -176,7 +263,14 @@ export async function gpSyncChild(
     // Non-fatal: summary stays null
   }
 
-  writeNode(target);
+  // Completion hook: never break Dispatch, even if the note is stale.
+  try {
+    writeNode(target);
+  } catch (err) {
+    console.warn(
+      `gp: could not update ${target.filepath}: ${err instanceof Error ? err.message : err}`
+    );
+  }
 }
 
 /**
@@ -220,6 +314,8 @@ export async function gpCollapse(
     throw new Error(`No dispatch-task children found for ${nodeId}`);
   }
 
+  // ── Checks first; nothing is touched until all of them pass ──
+
   // Check all children are done
   const notDone = children.filter((c) => c.meta.status !== "done");
   if (notDone.length > 0 && !force) {
@@ -229,13 +325,42 @@ export async function gpCollapse(
     );
   }
 
+  // --force still may not throw away unfinished work
+  const withWork = notDone.filter((c) => hasHandWrittenContent(c.body));
+  if (withWork.length > 0) {
+    const ids = withWork.map((c) => c.meta.id).join(", ");
+    throw new Error(
+      `Refusing --force: unfinished children have hand-written notes: ${ids}\n` +
+        `Finish them, or move the notes into ${parent.meta.id} first.`
+    );
+  }
+
+  // Other notes in the vault would be left with dead links
+  const ignorePaths = new Set(children.map((c) => c.filepath));
+  ignorePaths.add(parent.filepath);
+  const inbound = await findInboundLinks(vaultRoot, children, ignorePaths);
+  if (inbound.size > 0) {
+    const lines = [...inbound].map(
+      ([id, files]) =>
+        `  ${id} ← ${files.map((f) => path.relative(vaultRoot, f)).join(", ")}`
+    );
+    throw new Error(
+      `Refusing to collapse: other notes link to these children:\n${lines.join("\n")}\n` +
+        `Remove or repoint those links first.`
+    );
+  }
+
   // Build summary section
   const parentTaskId = parent.meta.artifacts["dispatch-run"] ?? "unknown";
   const summaryLines: string[] = [];
   summaryLines.push(`\n## Dispatch Run (dt-${parentTaskId})`);
   for (const child of children) {
     const taskId = child.meta["dispatch-task-id"] ?? "?";
-    const summary = child.meta["dispatch-summary"] ?? "no summary";
+    const summary =
+      child.meta["dispatch-summary"] ??
+      (child.meta.status === "done"
+        ? "no summary"
+        : `NOT DONE (${child.meta.status}) — collapsed with --force`);
     summaryLines.push(`- ${child.meta.id} (dt-${taskId}): ${summary}`);
   }
   // Add PR if parent has one
@@ -244,13 +369,17 @@ export async function gpCollapse(
   }
   summaryLines.push("");
 
-  // Append summary to parent body
+  // Append summary to parent body. Written before the children move so a
+  // failure here leaves every child note in place.
   parent.body += summaryLines.join("\n");
   parent.meta.status = "done" as NodeStatus;
   writeNode(parent);
 
-  // Delete child node files
+  // Destructive step last — and recoverable: children go to the vault's
+  // .trash, where Obsidian's "Deleted files" pane can restore them. A failure
+  // mid-loop leaves the rest on disk; re-running `gp collapse` is not possible
+  // (parent is done) but nothing has been lost.
   for (const child of children) {
-    fs.unlinkSync(child.filepath);
+    moveToTrash(vaultRoot, child.filepath);
   }
 }
