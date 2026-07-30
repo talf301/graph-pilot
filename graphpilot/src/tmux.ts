@@ -2,6 +2,22 @@ import { execFileSync } from "node:child_process";
 
 const SESSION = "graphpilot";
 
+export function listWindows(): string[] {
+  try {
+    return execFileSync("tmux", ["list-windows", "-t", SESSION, "-F", "#{window_name}"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function windowForNode(nodeId: string): string | undefined {
+  const windows = listWindows();
+  return [nodeId, `${nodeId}-dispatch`].find((name) => windows.includes(name));
+}
+
 /**
  * Check whether tmux is available on the system.
  * Returns true if the `tmux` binary is found and executable.
