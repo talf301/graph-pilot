@@ -55,6 +55,7 @@ let cachedConfig: GpConfig | null = null;
 let watcher: fs.FSWatcher | null = null;
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
+let nextViewId = 0;
 
 // ── Graph building ───────────────────────────────────────────────
 
@@ -415,7 +416,6 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 
   wss.on("connection", (ws: WebSocket) => {
     const terminals = new Map<string, { pty: IPty; session: string }>();
-    let nextViewId = 0;
 
     const closeTerminal = (nodeId: string) => {
       const view = terminals.get(nodeId);
