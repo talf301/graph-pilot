@@ -432,6 +432,52 @@
 
     .pick-mode-banner.visible { display: block; }
 
+    /* --- In-canvas terminal --- */
+    .terminal-badge {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      border: 2px solid var(--bg);
+      box-shadow: 0 0 0 2px #22c55e55;
+      cursor: pointer;
+      z-index: 20;
+      animation: terminal-pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes terminal-pulse {
+      50% { box-shadow: 0 0 0 5px #22c55e22; }
+    }
+    .terminal-panel {
+      position: absolute;
+      width: 520px;
+      height: 300px;
+      max-width: calc(100% - 16px);
+      max-height: calc(100% - 16px);
+      padding: 10px;
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      box-shadow: 0 10px 28px #0008;
+      z-index: 30;
+      display: none;
+    }
+    .terminal-panel.open { display: block; }
+    .terminal-panel .terminal-title {
+      height: 22px;
+      color: var(--text-muted);
+      font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .terminal-panel .terminal-output {
+      height: calc(100% - 22px);
+      min-height: 0;
+      overflow: hidden;
+    }
+    .terminal-panel .xterm { height: 100%; }
+
     /* --- Sidebar bug badge --- */
     .sidebar-bug-badge {
       display: none;
@@ -654,6 +700,10 @@
     <main class="graph-container">
       <div id="cy"></div>
       <div class="pick-mode-banner" id="pick-mode-banner">Click an epic to select as parent</div>
+      <div class="terminal-panel" id="terminal-panel">
+        <div class="terminal-title" id="terminal-title"></div>
+        <div class="terminal-output" id="terminal-output"></div>
+      </div>
     </main>
 
     <!-- Right Detail Panel -->
@@ -795,6 +845,9 @@
   </footer>
 
   <script src="graph.js"></script>
+  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="terminal.js"></script>
   <script src="actions.js"></script>
   <script src="filters.js"></script>
   <script src="create.js"></script>

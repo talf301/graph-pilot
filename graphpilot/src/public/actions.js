@@ -60,6 +60,7 @@
         showFeedback('Error: ' + data.error, true);
       } else {
         showFeedback('Launched in tmux window: ' + (data.window || 'ok'), false);
+        document.dispatchEvent(new CustomEvent('gp:session-start', { detail: { window: data.window } }));
       }
       return data;
     } catch (err) {
