@@ -119,11 +119,20 @@
   }).catch(function () {});
 
   document.addEventListener('gp:node-select', function (event) { toggle(event.detail.id); });
-  document.addEventListener('gp:ws-open', function () { if (activeId) send({ type: 'term:subscribe', nodeId: activeId }); });
+  document.addEventListener('gp:ws-open', function () {
+    if (activeId) {
+      send({ type: 'term:subscribe', nodeId: activeId });
+      sendResize();
+    }
+  });
   document.addEventListener('gp:ws-message', function (event) {
     var msg = event.detail;
     if (msg.type === 'term:data' && msg.nodeId === activeId && term) term.write(msg.data || '');
-    if (msg.type === 'term:exit' && msg.nodeId === activeId && term) term.write('\r\n[session ended]\r\n');
+    if (msg.type === 'term:exit') {
+      sessions.delete(msg.nodeId);
+      syncBadges();
+      if (msg.nodeId === activeId && term) term.write('\r\n[session ended]\r\n');
+    }
   });
   document.addEventListener('gp:session-start', function (event) {
     var id = nodeIdForWindow(event.detail.window);
@@ -136,9 +145,12 @@
       if (activeId && fit) { fit.fit(); sendResize(); position(activeId); }
     }).observe(panel);
   }
-  if (window.cy) {
+  function bindCyEvents() {
+    if (!window.cy) {
+      setTimeout(bindCyEvents, 200);
+      return;
+    }
     window.cy.on('pan zoom position layoutstop add remove', syncBadges);
-  } else {
-    setTimeout(function () { window.cy.on('pan zoom position layoutstop add remove', syncBadges); }, 100);
   }
+  bindCyEvents();
 })();
