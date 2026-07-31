@@ -7,7 +7,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import matter from "gray-matter";
 import { loadAllNodes, indexById, findVaultRoot, readNode, createNode, writeNode, findConfigPath, loadConfig } from "./vault.js";
-import { ensureSession, spawnWindow, checkTmux, listWindows, windowForNode, createViewSession, killViewSession } from "./tmux.js";
+import { ensureSession, spawnWindow, checkTmux, listWindows, windowForNode, createViewSession, killViewSession, captureScrollback } from "./tmux.js";
 import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
 import { refToId } from "./schema.js";
@@ -458,6 +458,8 @@ export async function startServer(opts: ServeOpts): Promise<void> {
         let terminal: IPty;
         try {
           createViewSession(sessionName, windowName);
+          const scrollback = captureScrollback(sessionName, windowName);
+          if (scrollback) sendTerminal({ type: "term:data", nodeId, data: scrollback });
           const env = { ...process.env } as Record<string, string>;
           delete env.TMUX;
           delete env.TMUX_PANE;

@@ -24,6 +24,15 @@ export function killViewSession(name: string): void {
   }
 }
 
+/** Capture scrollback above the visible pane so attach's initial redraw does not duplicate it. */
+export function captureScrollback(sessionName: string, windowName: string): string {
+  return execFileSync(
+    "tmux",
+    ["capture-pane", "-p", "-t", `${sessionName}:${windowName}`, "-S", "-200", "-E", "-1"],
+    { encoding: "utf-8", stdio: "pipe" },
+  );
+}
+
 export function listWindows(): string[] {
   try {
     return execFileSync("tmux", ["list-windows", "-t", SESSION, "-F", "#{window_name}"], {
