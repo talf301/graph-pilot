@@ -2,6 +2,44 @@ import { execFileSync } from "node:child_process";
 
 const SESSION = "graphpilot";
 
+export function createViewSession(name: string, windowName: string): void {
+  execFileSync("tmux", ["new-session", "-d", "-t", SESSION, "-s", name], {
+    encoding: "utf-8",
+    stdio: "pipe",
+  });
+  execFileSync("tmux", ["select-window", "-t", `${name}:${windowName}`], {
+    encoding: "utf-8",
+    stdio: "pipe",
+  });
+}
+
+export function killViewSession(name: string): void {
+  try {
+    execFileSync("tmux", ["kill-session", "-t", name], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch {
+    // The grouped session may already have exited.
+  }
+}
+
+export function listWindows(): string[] {
+  try {
+    return execFileSync("tmux", ["list-windows", "-t", SESSION, "-F", "#{window_name}"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function windowForNode(nodeId: string): string | undefined {
+  const windows = listWindows();
+  return [nodeId, `${nodeId}-dispatch`].find((name) => windows.includes(name));
+}
+
 /**
  * Check whether tmux is available on the system.
  * Returns true if the `tmux` binary is found and executable.
