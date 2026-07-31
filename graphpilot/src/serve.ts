@@ -4,9 +4,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import http from "node:http";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
+import { spawn as spawnPty, type IPty } from "node-pty";
 import matter from "gray-matter";
 import { loadAllNodes, indexById, findVaultRoot, readNode, createNode, writeNode, findConfigPath, loadConfig } from "./vault.js";
-import { ensureSession, spawnWindow, checkTmux } from "./tmux.js";
+import { ensureSession, spawnWindow, checkTmux, listWindows, windowProcessExited, killWindow, windowForNode, createViewSession, killViewSession, captureScrollback } from "./tmux.js";
 import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
 import { refToId } from "./schema.js";
@@ -54,6 +55,21 @@ let cachedConfig: GpConfig | null = null;
 let watcher: fs.FSWatcher | null = null;
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
+let nextViewId = 0;
+let reaper: ReturnType<typeof setInterval> | null = null;
+
+function reapStaleWindows(): void {
+  const doneNodes = new Set(
+    cachedNodes.filter((node) => node.meta.status === "done").map((node) => node.meta.id),
+  );
+
+  for (const name of listWindows()) {
+    const nodeId = name.endsWith("-dispatch") ? name.slice(0, -"-dispatch".length) : name;
+    if (!windowProcessExited(name) && !doneNodes.has(nodeId)) continue;
+    killWindow(name);
+    console.log(`[graphpilot] reaped tmux window "${name}"`);
+  }
+}
 
 // ── Graph building ───────────────────────────────────────────────
 
@@ -205,6 +221,10 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 
   app.get("/api/vault-info", (_req, res) => {
     res.json({ vaultName: path.basename(vaultRoot) });
+  });
+
+  app.get("/api/sessions", (_req, res) => {
+    res.json({ sessions: listWindows() });
   });
 
   app.get("/api/node/:id", (req, res) => {
@@ -409,6 +429,94 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   wss = new WebSocketServer({ server: httpServer });
 
   wss.on("connection", (ws: WebSocket) => {
+    const terminals = new Map<string, { pty: IPty; session: string }>();
+
+    const closeTerminal = (nodeId: string) => {
+      const view = terminals.get(nodeId);
+      if (!view) return;
+      terminals.delete(nodeId);
+      try {
+        view.pty.kill();
+      } catch {
+        // The pty may already have exited.
+      }
+      killViewSession(view.session);
+    };
+
+    const sendTerminal = (message: Record<string, unknown>) => {
+      if (ws.readyState === 1) ws.send(JSON.stringify(message));
+    };
+
+    ws.on("message", (raw) => {
+      let message: { type?: string; nodeId?: string; data?: string; cols?: number; rows?: number };
+      try {
+        message = JSON.parse(raw.toString()) as typeof message;
+      } catch {
+        return;
+      }
+
+      const { type, nodeId } = message;
+      if (typeof nodeId !== "string" || !nodeId) return;
+
+      if (type === "term:unsubscribe") {
+        closeTerminal(nodeId);
+      } else if (type === "term:subscribe") {
+        closeTerminal(nodeId);
+        const windowName = windowForNode(nodeId);
+        if (!windowName) {
+          sendTerminal({ type: "term:exit", nodeId, error: "No active tmux session" });
+          return;
+        }
+
+        const sessionName = `gp-view-${nextViewId++}`;
+        let terminal: IPty;
+        try {
+          createViewSession(sessionName, windowName);
+          const scrollback = captureScrollback(sessionName, windowName);
+          if (scrollback) sendTerminal({ type: "term:data", nodeId, data: scrollback });
+          const env = { ...process.env } as Record<string, string>;
+          delete env.TMUX;
+          delete env.TMUX_PANE;
+          terminal = spawnPty("tmux", ["attach", "-t", sessionName], {
+            name: "xterm-256color",
+            cols: 80,
+            rows: 24,
+            cwd: process.cwd(),
+            env,
+          });
+        } catch (err: unknown) {
+          killViewSession(sessionName);
+          sendTerminal({
+            type: "term:exit",
+            nodeId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return;
+        }
+        terminals.set(nodeId, { pty: terminal, session: sessionName });
+        terminal.onData((data) => sendTerminal({ type: "term:data", nodeId, data }));
+        terminal.onExit(({ exitCode }) => {
+          if (terminals.get(nodeId)?.pty === terminal) {
+            terminals.delete(nodeId);
+            killViewSession(sessionName);
+          }
+          sendTerminal({ type: "term:exit", nodeId, exitCode });
+        });
+      } else if (type === "term:input" && typeof message.data === "string") {
+        terminals.get(nodeId)?.pty.write(message.data);
+      } else if (type === "term:resize") {
+        const { cols, rows } = message;
+        if (typeof cols === "number" && typeof rows === "number"
+          && Number.isInteger(cols) && Number.isInteger(rows) && cols > 0 && rows > 0) {
+          terminals.get(nodeId)?.pty.resize(cols, rows);
+        }
+      }
+    });
+
+    ws.on("close", () => {
+      for (const nodeId of terminals.keys()) closeTerminal(nodeId);
+    });
+
     // Send current graph state on connect
     const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
     ws.send(JSON.stringify({ type: "graph-update", ...payload }));
@@ -416,6 +524,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 
   // File watching
   setupWatcher(vaultRoot);
+  reaper = setInterval(reapStaleWindows, 2 * 60 * 1000);
 
   return new Promise<void>((resolve) => {
     httpServer!.listen(port, () => {
@@ -428,6 +537,10 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 }
 
 export async function stopServer(): Promise<void> {
+  if (reaper) {
+    clearInterval(reaper);
+    reaper = null;
+  }
   if (watcher) {
     watcher.close();
     watcher = null;

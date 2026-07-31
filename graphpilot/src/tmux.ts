@@ -2,6 +2,75 @@ import { execFileSync } from "node:child_process";
 
 const SESSION = "graphpilot";
 
+export function createViewSession(name: string, windowName: string): void {
+  execFileSync("tmux", ["new-session", "-d", "-t", SESSION, "-s", name], {
+    encoding: "utf-8",
+    stdio: "pipe",
+  });
+  execFileSync("tmux", ["select-window", "-t", `${name}:${windowName}`], {
+    encoding: "utf-8",
+    stdio: "pipe",
+  });
+}
+
+export function killViewSession(name: string): void {
+  try {
+    execFileSync("tmux", ["kill-session", "-t", name], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch {
+    // The grouped session may already have exited.
+  }
+}
+
+/** Capture scrollback above the visible pane so attach's initial redraw does not duplicate it. */
+export function captureScrollback(sessionName: string, windowName: string): string {
+  return execFileSync(
+    "tmux",
+    ["capture-pane", "-p", "-t", `${sessionName}:${windowName}`, "-S", "-200", "-E", "-1"],
+    { encoding: "utf-8", stdio: "pipe" },
+  );
+}
+
+export function listWindows(): string[] {
+  try {
+    return execFileSync("tmux", ["list-windows", "-t", SESSION, "-F", "#{window_name}"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function windowProcessExited(name: string): boolean {
+  try {
+    return execFileSync("tmux", ["list-panes", "-t", `${SESSION}:${name}`, "-F", "#{pane_dead}"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim() === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function killWindow(name: string): void {
+  try {
+    execFileSync("tmux", ["kill-window", "-t", `${SESSION}:${name}`], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch {
+    // The window may already have exited.
+  }
+}
+
+export function windowForNode(nodeId: string): string | undefined {
+  const windows = listWindows();
+  return [nodeId, `${nodeId}-dispatch`].find((name) => windows.includes(name));
+}
+
 /**
  * Check whether tmux is available on the system.
  * Returns true if the `tmux` binary is found and executable.
@@ -58,7 +127,10 @@ export function spawnWindow(name: string, command: string): void {
   try {
     execFileSync(
       "tmux",
-      ["new-window", "-t", SESSION, "-n", name, command],
+      [
+        "new-window", "-t", SESSION, "-n", name, command,
+        ";", "set-window-option", "-t", `${SESSION}:${name}`, "remain-on-exit", "on",
+      ],
       { encoding: "utf-8", stdio: "pipe" },
     );
   } catch (err: unknown) {

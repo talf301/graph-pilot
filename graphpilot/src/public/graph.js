@@ -257,6 +257,7 @@
 
     ws.addEventListener('open', function () {
       console.log('[GraphPilot] WebSocket connected');
+      document.dispatchEvent(new CustomEvent('gp:ws-open'));
       if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
     });
 
@@ -264,6 +265,7 @@
       try {
         var msg = JSON.parse(event.data);
         if (msg.type === 'graph-update') updateGraph(msg.nodes, msg.edges);
+        document.dispatchEvent(new CustomEvent('gp:ws-message', { detail: msg }));
       } catch (e) {
         console.error('[GraphPilot] Failed to parse WS message:', e);
       }
@@ -277,6 +279,10 @@
 
     ws.addEventListener('error', function () { if (ws) ws.close(); });
   }
+
+  window.gpSendWs = function (message) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+  };
 
   wsConnect();
 })();
