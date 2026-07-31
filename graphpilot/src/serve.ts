@@ -7,7 +7,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import matter from "gray-matter";
 import { loadAllNodes, indexById, findVaultRoot, readNode, createNode, writeNode, findConfigPath, loadConfig } from "./vault.js";
-import { ensureSession, spawnWindow, checkTmux, listWindows, windowForNode, createViewSession, killViewSession, captureScrollback } from "./tmux.js";
+import { ensureSession, spawnWindow, checkTmux, listWindows, windowProcessExited, killWindow, windowForNode, createViewSession, killViewSession, captureScrollback } from "./tmux.js";
 import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
 import { refToId } from "./schema.js";
@@ -56,6 +56,20 @@ let watcher: fs.FSWatcher | null = null;
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
 let nextViewId = 0;
+let reaper: ReturnType<typeof setInterval> | null = null;
+
+function reapStaleWindows(): void {
+  const doneNodes = new Set(
+    cachedNodes.filter((node) => node.meta.status === "done").map((node) => node.meta.id),
+  );
+
+  for (const name of listWindows()) {
+    const nodeId = name.endsWith("-dispatch") ? name.slice(0, -"-dispatch".length) : name;
+    if (!windowProcessExited(name) && !doneNodes.has(nodeId)) continue;
+    killWindow(name);
+    console.log(`[graphpilot] reaped tmux window "${name}"`);
+  }
+}
 
 // ── Graph building ───────────────────────────────────────────────
 
@@ -510,6 +524,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 
   // File watching
   setupWatcher(vaultRoot);
+  reaper = setInterval(reapStaleWindows, 2 * 60 * 1000);
 
   return new Promise<void>((resolve) => {
     httpServer!.listen(port, () => {
@@ -522,6 +537,10 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 }
 
 export async function stopServer(): Promise<void> {
+  if (reaper) {
+    clearInterval(reaper);
+    reaper = null;
+  }
   if (watcher) {
     watcher.close();
     watcher = null;

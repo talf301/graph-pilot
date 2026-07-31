@@ -44,6 +44,28 @@ export function listWindows(): string[] {
   }
 }
 
+export function windowProcessExited(name: string): boolean {
+  try {
+    return execFileSync("tmux", ["list-panes", "-t", `${SESSION}:${name}`, "-F", "#{pane_dead}"], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim() === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function killWindow(name: string): void {
+  try {
+    execFileSync("tmux", ["kill-window", "-t", `${SESSION}:${name}`], {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+  } catch {
+    // The window may already have exited.
+  }
+}
+
 export function windowForNode(nodeId: string): string | undefined {
   const windows = listWindows();
   return [nodeId, `${nodeId}-dispatch`].find((name) => windows.includes(name));
