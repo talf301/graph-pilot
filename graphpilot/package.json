@@ -11,10 +11,10 @@
     "templates"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('node:fs').cpSync('src/public', 'dist/public', { recursive: true })\"",
     "test": "tsc && node --test dist/*.test.js",
     "dev": "tsc --watch",
-    "prepare": "tsc",
+    "prepare": "npm run build",
     "link": "npm run build && npm link"
   },
   "dependencies": {
