@@ -127,7 +127,10 @@ export function spawnWindow(name: string, command: string): void {
   try {
     execFileSync(
       "tmux",
-      ["new-window", "-t", SESSION, "-n", name, command],
+      [
+        "new-window", "-t", SESSION, "-n", name, command,
+        ";", "set-window-option", "-t", `${SESSION}:${name}`, "remain-on-exit", "on",
+      ],
       { encoding: "utf-8", stdio: "pipe" },
     );
   } catch (err: unknown) {
