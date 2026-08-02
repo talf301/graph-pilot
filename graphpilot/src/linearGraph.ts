@@ -9,7 +9,6 @@ export interface DispatchTask {
   id: string;
   status: string;
   title?: string;
-  branch?: string;
   raw?: Record<string, unknown>;
 }
 
@@ -45,7 +44,7 @@ export interface LinearGraph {
 }
 
 interface DtShowResult {
-  task?: { id?: string; title?: string; status?: string; branch?: string; [key: string]: unknown };
+  task?: { id?: string; title?: string; status?: string; [key: string]: unknown };
 }
 
 async function readDispatchTask(correlation: Correlation): Promise<DispatchTask> {
@@ -57,7 +56,6 @@ async function readDispatchTask(correlation: Correlation): Promise<DispatchTask>
       id: task.id ?? correlation.taskId,
       status: task.status ?? "unknown",
       title: task.title,
-      branch: task.branch,
       raw: task,
     };
   } catch {
