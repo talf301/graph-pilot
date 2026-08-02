@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   findVaultRoot,
   findConfigPath,
@@ -142,7 +143,7 @@ async function cmdAddProject(args: string[]) {
 
   // Create project node directory structure
   const projectDir = path.join(vaultRoot, config.root, name);
-  for (const sub of ["epics", "features", "tasks", "spikes", "bugs"]) {
+  for (const sub of ["epics", "features", "tasks", "spikes"]) {
     fs.mkdirSync(path.join(projectDir, sub), { recursive: true });
   }
 
@@ -161,8 +162,8 @@ async function cmdCreate(args: string[]) {
     die("Usage: gp create <type> <id> [title] --project <name> [--parent [[ref]]] [--dep [[ref]]]");
   }
 
-  if (!["epic", "feature", "task", "spike", "bug", "dispatch-task"].includes(type)) {
-    die(`Unknown type: ${type}. Use epic, feature, task, spike, bug, or dispatch-task.`);
+  if (!["epic", "feature", "task", "spike", "dispatch-task"].includes(type)) {
+    die(`Unknown type: ${type}. Use epic, feature, task, spike, or dispatch-task.`);
   }
 
   // Resolve project — use flag, or infer if only one project exists
@@ -368,47 +369,36 @@ async function cmdLaunch(args: string[]) {
   target.meta.status = "in-progress";
   writeNode(target);
 
-  if ((target.meta.type as string) === "bug") {
-    info(`Launching Claude Code to fix bug: ${target.meta.id}`);
-  } else {
-    info(`Launching Claude Code for: ${target.meta.id}`);
-  }
+  info(`Launching Claude Code for: ${target.meta.id}`);
   info(`Project: ${target.meta.project} → ${projectRoot}`);
   info(`Context: ${contextNodes.length} nodes assembled`);
   console.log("");
 
-  // Launch claude interactively with the context as initial prompt
-  // Use --initial-prompt if available, otherwise pipe to stdin
-  const child = spawn("claude", ["--dangerously-skip-permissions", prompt], {
-    cwd: projectRoot,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      GRAPHPILOT_NODE: target.meta.id,
-      GRAPHPILOT_PROJECT: target.meta.project,
-      GRAPHPILOT_VAULT: vaultRoot,
-    },
-  });
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "graphpilot-launch-"));
+  const thoughtFile = path.join(tempDir, "thought.md");
+  fs.writeFileSync(thoughtFile, prompt, "utf-8");
+  try {
+    const task = JSON.parse(execFileSync("dt", [
+      "go",
+      "--repo", projectRoot,
+      "--thought-file", thoughtFile,
+      "--json",
+    ], { encoding: "utf-8" })) as { id?: unknown; workdir?: unknown };
+    if (typeof task.id !== "string" || typeof task.workdir !== "string") {
+      throw new Error("dt go returned no task id or workdir");
+    }
 
-  child.on("error", () => {
-    // Fallback: pipe prompt to stdin
-    info("(Falling back to stdin prompt)");
-    const fallback = spawn("claude", ["--dangerously-skip-permissions"], {
-      cwd: projectRoot,
-      stdio: ["pipe", "inherit", "inherit"],
-      env: {
-        ...process.env,
-        GRAPHPILOT_NODE: target.meta.id,
-        GRAPHPILOT_PROJECT: target.meta.project,
-        GRAPHPILOT_VAULT: vaultRoot,
-      },
-    });
-    fallback.stdin?.write(prompt);
-    fallback.stdin?.end();
-    fallback.on("close", (code) => process.exit(code ?? 0));
-  });
-
-  child.on("close", (code) => process.exit(code ?? 0));
+    // The Claude process now runs in a dispatch/herdr pane, not graph-pilot's
+    // tmux session, so the in-canvas terminal cannot attach to this launch yet.
+    target.meta.session = { id: task.id, workdir: task.workdir };
+    writeNode(target);
+    ok(`Started dispatch task: ${task.id}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    die(`dt go failed: ${message}`);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 async function cmdComplete(args: string[]) {

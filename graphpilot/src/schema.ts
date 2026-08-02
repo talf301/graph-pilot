@@ -20,7 +20,6 @@ export const NodeType = {
   Feature: "feature",
   Task: "task",
   Spike: "spike",
-  Bug: "bug",
   DispatchTask: "dispatch-task",
 } as const;
 export type NodeType = (typeof NodeType)[keyof typeof NodeType];
@@ -29,14 +28,17 @@ export const NodeStatus = {
   Planned: "planned",
   Designing: "designing",
   Ready: "ready", // all deps met, spec written, can be launched
-  Open: "open", // bug reported but not yet started
   InProgress: "in-progress",
   Dispatching: "dispatching",
-  Fixed: "fixed", // bug has been resolved
   Done: "done",
   Blocked: "blocked",
 } as const;
 export type NodeStatus = (typeof NodeStatus)[keyof typeof NodeStatus];
+
+export interface SessionInfo {
+  id: string;
+  workdir: string;
+}
 
 // --- Frontmatter shape ---
 
@@ -78,8 +80,8 @@ export interface NodeFrontmatter {
    */
   blocks: string[];
 
-  /** Active Claude Code session id, or null */
-  session: string | null;
+  /** Active dispatch task and its worktree, or null */
+  session: SessionInfo | null;
 
   /** Dispatch task ID — only on dispatch-task nodes */
   "dispatch-task-id"?: string;
