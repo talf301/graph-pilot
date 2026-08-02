@@ -240,7 +240,7 @@
     startWorkBtn.addEventListener('click', function () {
       var planId = prompt('Enter a dispatch task ID (or plan ID):');
       if (!planId) return;
-      apiCall('POST', '/api/dispatch/' + encodeURIComponent(nodeId), { planId: planId });
+      apiCall('POST', '/api/start-work/' + encodeURIComponent(nodeId), { taskId: planId });
     });
     actionsEl.appendChild(startWorkBtn);
 

@@ -12,6 +12,7 @@ import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
 import { refToId } from "./schema.js";
 import { assembleLinearGraph, type LinearGraph } from "./linearGraph.js";
+import { CorrelationStore } from "./correlations.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -191,6 +192,27 @@ export async function startServer(opts: ServeOpts): Promise<void> {
       ensureSession();
       spawnWindow(windowName, cmd);
       res.json({ ok: true, window: windowName });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  app.post("/api/start-work/:id", (req, res) => {
+    const node = cachedGraph.nodes.find((candidate) => candidate.id === req.params.id);
+    const taskId = typeof req.body?.taskId === "string" ? req.body.taskId.trim() : "";
+    if (!node) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    if (!taskId) {
+      res.status(400).json({ error: "Missing required taskId" });
+      return;
+    }
+
+    try {
+      const correlation = new CorrelationStore().addTaskForIssue(node.linearId, taskId);
+      res.status(201).json({ ok: true, correlation });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });
