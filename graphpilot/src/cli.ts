@@ -325,9 +325,8 @@ async function cmdCanvas(args: string[]) {
 async function regenerateCanvas(vaultRoot: string, config: GpConfig, project?: string) {
   try {
     if (project) {
-      const graph = await assembleLinearGraph();
-      const projectGraph = { ...graph, nodes: graph.nodes.filter((node) => node.project === project), edges: graph.edges.filter((edge) => graph.nodes.some((node) => node.id === edge.source && node.project === project) && graph.nodes.some((node) => node.id === edge.target && node.project === project)) };
-      const canvasJson = toLinearCanvas(projectGraph);
+      const nodes = await loadAllNodes(vaultRoot, { project });
+      const canvasJson = toCanvas(nodes, vaultRoot);
       const outPath = path.join(vaultRoot, config.root, project, `${project}.canvas`);
       fs.writeFileSync(outPath, canvasJson, "utf-8");
     }
