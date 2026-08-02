@@ -40,17 +40,30 @@
       overflow: hidden;
     }
 
+    .toolbar {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .toolbar .sidebar-header { flex-shrink: 0; }
+    .toolbar .filter-group { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .toolbar .filter-group h3 { margin: 0; }
+    .toolbar .pill-container { flex-wrap: nowrap; }
+    .toolbar .layout-toggle { flex-shrink: 0; }
+    .toolbar .btn-design { width: auto; padding: 8px 12px; white-space: nowrap; }
+
     /* --- Left sidebar --- */
     .sidebar {
-      width: 240px;
-      min-width: 240px;
       background: var(--surface);
-      border-right: 1px solid var(--border);
-      padding: 16px;
-      overflow-y: auto;
+      padding: 0;
       display: flex;
-      flex-direction: column;
-      gap: 20px;
+      flex-direction: row;
+      gap: 18px;
     }
 
     .sidebar h1 {
@@ -142,6 +155,28 @@
     .detail-panel.open {
       display: flex;
     }
+
+    .dispatch-section h4, .ghost-section h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .dispatch-list { display: flex; flex-direction: column; gap: 8px; }
+    .dispatch-card {
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.025);
+      font-size: 12px;
+    }
+    .dispatch-card header { display: flex; justify-content: space-between; gap: 8px; }
+    .dispatch-card a { color: var(--accent); text-decoration: none; }
+    .dispatch-card a:hover { text-decoration: underline; }
+    .dispatch-card small { display: block; color: var(--text-muted); margin-top: 4px; overflow-wrap: anywhere; }
+    .btn-start-work { background: var(--accent); color: white; }
+    .ghost-node { color: var(--text-muted); font-size: 12px; }
 
     .detail-panel .detail-header {
       display: flex;
@@ -643,9 +678,8 @@
 </head>
 <body>
 
-  <div class="panels">
-    <!-- Left Sidebar -->
-    <aside class="sidebar">
+  <!-- Top toolbar -->
+  <aside class="toolbar sidebar">
       <div class="sidebar-header">
         <h1>GraphPilot</h1>
         <button class="btn-add-node" id="btn-add-node" title="Create new node">+</button>
@@ -683,6 +717,15 @@
         </div>
       </div>
 
+      <div class="filter-group" id="dispatch-filters">
+        <h3>Dispatch</h3>
+        <div class="pill-container">
+          <span class="pill active" data-filter="dispatch" data-value="all">All</span>
+          <span class="pill" data-filter="dispatch" data-value="active">Has task</span>
+          <span class="pill" data-filter="dispatch" data-value="none">No task</span>
+        </div>
+      </div>
+
       <div class="filter-group">
         <h3>Layout</h3>
         <div class="layout-toggle">
@@ -694,11 +737,17 @@
       <div class="sidebar-bug-badge" id="sidebar-bug-badge">🐛 0</div>
 
       <button class="btn-design" id="btn-design-session">Design Session</button>
-    </aside>
+  </aside>
+
+  <div class="panels">
 
     <!-- Center Graph Canvas -->
     <main class="graph-container">
       <div id="cy"></div>
+      <div class="ghost-section" id="ghost-work" style="display:none;position:absolute;right:16px;bottom:16px;background:var(--surface);border:1px dashed var(--text-muted);border-radius:8px;padding:10px;max-width:260px;z-index:10;">
+        <h4>Untracked dispatch work</h4>
+        <div class="ghost-node" id="ghost-work-list"></div>
+      </div>
       <div class="pick-mode-banner" id="pick-mode-banner">Click an epic to select as parent</div>
       <div class="terminal-panel" id="terminal-panel">
         <div class="terminal-title" id="terminal-title"></div>
@@ -724,6 +773,10 @@
       <div class="relations" id="detail-parent"></div>
       <div class="relations" id="detail-deps"></div>
       <div class="relations" id="detail-children"></div>
+      <section class="dispatch-section">
+        <h4>Dispatch work</h4>
+        <div class="dispatch-list" id="dispatch-list"></div>
+      </section>
       <div class="detail-actions" id="detail-actions"></div>
     </aside>
 

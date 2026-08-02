@@ -28,7 +28,7 @@ type GraphPayload = LinearGraph;
 
 let cachedNodes: GraphNode[] = [];
 let cachedIndex: Map<string, GraphNode> = new Map();
-let cachedGraph: LinearGraph = { nodes: [], edges: [] };
+let cachedGraph: LinearGraph = { nodes: [], edges: [], untrackedTasks: [] };
 let cachedVaultRoot: string = "";
 let cachedConfig: GpConfig | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;

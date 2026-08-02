@@ -15,6 +15,11 @@
     blocked: 'rgba(239,68,68,0.15)',
     open: 'rgba(239,68,68,0.15)', fixed: 'rgba(34,197,94,0.15)',
   };
+  var STATUS_WEIGHT = {
+    backlog: 'recede', done: 'recede', cancelled: 'attention', canceled: 'attention',
+    blocked: 'attention',
+  };
+  var STATUS_ALIASES = { backlog: 'planned', todo: 'ready', started: 'in-progress', completed: 'done', canceled: 'cancelled', cancelled: 'cancelled' };
   var TYPE_SHAPES = {
     epic:             { shape: 'round-rectangle', width: 170, height: 60 },
     feature:          { shape: 'round-rectangle', width: 130, height: 46 },
@@ -54,7 +59,8 @@
         height: function (el) { return (TYPE_SHAPES[el.data('type')] || TYPE_SHAPES.task).height; },
         'corner-radius': 8,
         'background-color': function (el) { return STATUS_BG[el.data('status')] || STATUS_BG.planned; },
-        'border-width': 3,
+        'border-width': function (el) { return el.data('weight') === 'attention' ? 4 : el.data('weight') === 'recede' ? 1 : 3; },
+        opacity: function (el) { return el.data('weight') === 'recede' ? 0.55 : 1; },
         'border-color': function (el) { return STATUS_COLORS[el.data('status')] || STATUS_COLORS.planned; },
         label: function (el) { return el.data('label') || el.id(); },
         'text-wrap': 'wrap', 'text-max-width': 120,
@@ -68,6 +74,11 @@
       { selector: 'node[type="bug"]', style: {
         'border-color': '#ef4444',
         'background-color': 'rgba(239,68,68,0.15)',
+      }},
+      { selector: 'node[type="ghost"]', style: {
+        shape: 'round-rectangle', width: 130, height: 42, label: function (el) { return el.data('label'); },
+        'background-color': 'rgba(136,136,136,0.08)', 'border-color': '#888', 'border-width': 2,
+        'border-style': 'dashed', color: '#aaa', opacity: 0.7, 'font-size': 10,
       }},
       // Edge base
       { selector: 'edge', style: {
@@ -141,6 +152,7 @@
   // Click node: pick mode intercept, then select + focus
   cy.on('tap', 'node', function (evt) {
     var node = evt.target;
+    if (node.data('type') === 'ghost') return;
 
     // Pick mode: only allow epic selection, fill parent field
     if (window.gpPickMode && window.gpPickMode.isActive()) {
@@ -186,25 +198,34 @@
   cy.on('mouseout', 'node', function (evt) { evt.target.connectedEdges().removeClass('highlighted'); });
 
   // --- Graph update (called from WebSocket or REST fetch) ---
-  function updateGraph(nodes, edges) {
+  function updateGraph(nodes, edges, untrackedTasks) {
     var elements = [];
     var nodeTypeMap = {};
     (nodes || []).forEach(function (n) {
       nodeTypeMap[n.id] = n.type || 'task';
       elements.push({ group: 'nodes', data: {
-        id: n.id, label: n.label || n.id, type: n.type || 'task',
-        status: n.status || 'planned', project: n.project || '',
+        id: n.id, label: n.label || n.id, title: n.title || '', type: n.type || 'task',
+        status: STATUS_ALIASES[(n.statusType || '').toLowerCase()] || STATUS_ALIASES[(n.status || '').toLowerCase().replace(/\s+/g, '-')] || (n.status || 'planned').toLowerCase().replace(/\s+/g, '-'),
+        statusType: n.statusType || '', weight: STATUS_WEIGHT[(n.status || '').toLowerCase()] || STATUS_WEIGHT[(n.statusType || '').toLowerCase()] || 'normal',
+        project: n.project || '', linearId: n.linearId || '',
+        dispatchTasks: n.dispatchTasks || [], dispatchState: n.dispatchTasks && n.dispatchTasks.length ? 'active' : 'none',
         description: n.description || '', body: n.body || '',
         filepath: n.filepath || '', parent_node: n.parent || null,
         deps: n.deps || [], children: n.children || [],
         severity: n.severity || '',
       }});
     });
+    (untrackedTasks || []).forEach(function (task) {
+      elements.push({ group: 'nodes', data: {
+        id: 'ghost-dispatch-' + task.id, label: 'dt ' + task.id, type: 'ghost', status: 'none',
+        project: '', dispatchState: 'none', task: task,
+      }});
+    });
     (edges || []).forEach(function (e) {
       var isBugEdge = nodeTypeMap[e.source] === 'bug';
       elements.push({ group: 'edges', data: {
         id: e.id || (e.source + '-' + e.target + '-' + (e.edgeType || 'parent')),
-        source: e.source, target: e.target, edgeType: e.edgeType || 'parent',
+        source: e.source, target: e.target, edgeType: e.edgeType || e.type || 'parent',
         isBugEdge: isBugEdge,
       }});
     });
@@ -234,6 +255,8 @@
       window.GraphPilotBugs.updateFromGraph(nodes || []);
     }
 
+    renderGhostWork(untrackedTasks || []);
+
     runLayout();
 
     // Restore focus if active
@@ -245,6 +268,19 @@
   }
 
   window.gpUpdateGraph = updateGraph;
+
+  function renderGhostWork(tasks) {
+    var box = document.getElementById('ghost-work');
+    var list = document.getElementById('ghost-work-list');
+    if (!box || !list) return;
+    list.innerHTML = '';
+    tasks.forEach(function (task) {
+      var row = document.createElement('div');
+      row.textContent = task.id + ' · ' + (task.status || 'unknown');
+      list.appendChild(row);
+    });
+    box.style.display = tasks.length ? 'block' : 'none';
+  }
 
   // --- WebSocket client with auto-reconnect ---
   var wsUrl = 'ws://' + window.location.host;
@@ -264,7 +300,7 @@
     ws.addEventListener('message', function (event) {
       try {
         var msg = JSON.parse(event.data);
-        if (msg.type === 'graph-update') updateGraph(msg.nodes, msg.edges);
+        if (msg.type === 'graph-update') updateGraph(msg.nodes, msg.edges, msg.untrackedTasks);
         document.dispatchEvent(new CustomEvent('gp:ws-message', { detail: msg }));
       } catch (e) {
         console.error('[GraphPilot] Failed to parse WS message:', e);

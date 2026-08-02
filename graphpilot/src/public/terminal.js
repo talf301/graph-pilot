@@ -8,6 +8,7 @@
   var sessions = new Set();
   var badges = new Map();
   var activeId = null;
+  var fallback = null;
   var term = null;
   var fit = null;
 
@@ -110,6 +111,26 @@
 
   function toggle(id) { if (activeId === id) close(); else open(id); }
 
+  function showDispatchFallback(data) {
+    if (!fallback) {
+      fallback = document.createElement('div');
+      fallback.className = 'terminal-panel open';
+      fallback.style.height = 'auto';
+      document.querySelector('.graph-container').appendChild(fallback);
+    }
+    fallback.textContent = '';
+    var heading = document.createElement('div');
+    heading.className = 'terminal-title';
+    heading.textContent = 'dispatch work';
+    fallback.appendChild(heading);
+    var message = document.createElement('div');
+    message.style.cssText = 'padding:8px;color:var(--text-muted);font-size:12px;';
+    message.textContent = (data.dispatchTasks || []).map(function (task) {
+      return 'Task ' + task.id + ' - view it in dispatch/herdr.';
+    }).join('\n');
+    fallback.appendChild(message);
+  }
+
   fetch('/api/sessions').then(function (res) { return res.json(); }).then(function (data) {
     (data.sessions || []).forEach(function (name) {
       var id = nodeIdForWindow(name);
@@ -118,7 +139,15 @@
     syncBadges();
   }).catch(function () {});
 
-  document.addEventListener('gp:node-select', function (event) { toggle(event.detail.id); });
+  document.addEventListener('gp:node-select', function (event) {
+    var data = event.detail.data || {};
+    if (!nodeIdForWindow(event.detail.id) && data.dispatchTasks && data.dispatchTasks.length) {
+      showDispatchFallback(data);
+      return;
+    }
+    if (fallback) { fallback.remove(); fallback = null; }
+    toggle(event.detail.id);
+  });
   document.addEventListener('gp:ws-open', function () {
     if (activeId) {
       send({ type: 'term:subscribe', nodeId: activeId });

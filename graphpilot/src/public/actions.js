@@ -15,6 +15,7 @@
   const depsEl = document.getElementById('detail-deps');
   const childrenEl = document.getElementById('detail-children');
   const actionsEl = document.getElementById('detail-actions');
+  const dispatchListEl = document.getElementById('dispatch-list');
   const closeBtn = document.getElementById('detail-close');
   const designBtn = document.getElementById('btn-design-session');
 
@@ -97,6 +98,37 @@
     container.appendChild(ul);
   }
 
+  function renderDispatchTasks(tasks) {
+    dispatchListEl.innerHTML = '';
+    (tasks || []).forEach(function (task) {
+      var card = document.createElement('article');
+      card.className = 'dispatch-card';
+      var header = document.createElement('header');
+      var id = document.createElement('strong');
+      id.textContent = task.id || 'unknown task';
+      var status = document.createElement('span');
+      status.className = 'badge status-' + String(task.status || 'unknown').toLowerCase().replace(/\s+/g, '-');
+      status.textContent = task.status || 'unknown';
+      header.appendChild(id);
+      header.appendChild(status);
+      card.appendChild(header);
+      if (task.branch) {
+        var branch = document.createElement('small');
+        branch.textContent = 'branch: ' + task.branch;
+        card.appendChild(branch);
+      }
+      if (task.pr) {
+        var pr = document.createElement('a');
+        pr.href = task.pr;
+        pr.target = '_blank';
+        pr.rel = 'noopener';
+        pr.textContent = 'View pull request';
+        card.appendChild(pr);
+      }
+      dispatchListEl.appendChild(card);
+    });
+  }
+
   function getNodeChildren(nodeId) {
     if (!window.cy) return [];
     // Children are nodes whose parent edge points to this node
@@ -168,6 +200,7 @@
     renderRelations(parentEl, 'Parent', getNodeParent(d));
     renderRelations(depsEl, 'Dependencies', getNodeDeps(d));
     renderRelations(childrenEl, 'Children', getNodeChildren(nodeId));
+    renderDispatchTasks(d.dispatchTasks);
 
     // Action buttons
     actionsEl.innerHTML = '';
@@ -200,6 +233,16 @@
       });
       actionsEl.appendChild(dispatchBtn);
     }
+
+    var startWorkBtn = document.createElement('button');
+    startWorkBtn.className = 'btn-start-work';
+    startWorkBtn.textContent = 'Start work';
+    startWorkBtn.addEventListener('click', function () {
+      var planId = prompt('Enter a dispatch task ID (or plan ID):');
+      if (!planId) return;
+      apiCall('POST', '/api/dispatch/' + encodeURIComponent(nodeId), { planId: planId });
+    });
+    actionsEl.appendChild(startWorkBtn);
 
     // Create child: shown for epics
     if (nodeType === 'epic') {
