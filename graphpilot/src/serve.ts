@@ -11,6 +11,7 @@ import { ensureSession, spawnWindow, checkTmux, listWindows, windowProcessExited
 import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
 import { refToId } from "./schema.js";
+import { assembleLinearGraph, type LinearGraph } from "./linearGraph.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -21,38 +22,16 @@ export interface ServeOpts {
   daemonize?: boolean;
 }
 
-interface GraphPayload {
-  nodes: NodePayload[];
-  edges: EdgePayload[];
-}
-
-interface NodePayload {
-  id: string;
-  label: string;
-  type: string;
-  status: string;
-  project: string;
-  parent: string | null;
-  body: string;
-  description: string;
-  deps: string[];
-  children: string[];
-  filepath: string;
-}
-
-interface EdgePayload {
-  source: string;
-  target: string;
-  type: "depends-on" | "parent";
-}
+type GraphPayload = LinearGraph;
 
 // ── State ────────────────────────────────────────────────────────
 
 let cachedNodes: GraphNode[] = [];
 let cachedIndex: Map<string, GraphNode> = new Map();
+let cachedGraph: LinearGraph = { nodes: [], edges: [] };
 let cachedVaultRoot: string = "";
 let cachedConfig: GpConfig | null = null;
-let watcher: fs.FSWatcher | null = null;
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
 let nextViewId = 0;
@@ -73,79 +52,18 @@ function reapStaleWindows(): void {
 
 // ── Graph building ───────────────────────────────────────────────
 
-function buildGraphPayload(nodes: GraphNode[], vaultRoot: string): GraphPayload {
-  // Build children lookup via reverse parent mapping
-  const childrenMap = new Map<string, string[]>();
-  for (const n of nodes) {
-    if (n.meta.parent) {
-      const parentId = refToId(n.meta.parent);
-      const existing = childrenMap.get(parentId);
-      if (existing) {
-        existing.push(n.meta.id);
-      } else {
-        childrenMap.set(parentId, [n.meta.id]);
-      }
-    }
-  }
-
-  const idSet = new Set(nodes.map((n) => n.meta.id));
-
-  const nodePayloads: NodePayload[] = nodes.map((n) => {
-    const truncatedBody = n.body.length > 500 ? n.body.slice(0, 500) : n.body;
-    const firstNonEmpty = n.body
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? "";
-    const resolvedDeps = (n.meta["depends-on"] ?? [])
-      .map(refToId)
-      .filter((d) => idSet.has(d));
-
-    return {
-      id: n.meta.id,
-      label: n.meta.id,
-      type: n.meta.type,
-      status: n.meta.status,
-      project: n.meta.project,
-      parent: n.meta.parent,
-      body: truncatedBody,
-      description: firstNonEmpty,
-      deps: resolvedDeps,
-      children: childrenMap.get(n.meta.id) ?? [],
-      filepath: path.relative(vaultRoot, n.filepath),
-    };
-  });
-
-  const edges: EdgePayload[] = [];
-
-  for (const node of nodes) {
-    for (const dep of node.meta["depends-on"] ?? []) {
-      const depId = refToId(dep);
-      if (idSet.has(depId)) {
-        edges.push({ source: depId, target: node.meta.id, type: "depends-on" });
-      }
-    }
-    if (node.meta.parent) {
-      const parentId = refToId(node.meta.parent);
-      if (idSet.has(parentId)) {
-        edges.push({ source: parentId, target: node.meta.id, type: "parent" });
-      }
-    }
-  }
-
-  return { nodes: nodePayloads, edges };
+function buildGraphPayload(graph: LinearGraph): GraphPayload {
+  return graph;
 }
 
 // ── File watching ────────────────────────────────────────────────
 
-function setupWatcher(vaultRoot: string): void {
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
+function setupWatcher(): void {
   const rebuild = async () => {
     const start = Date.now();
     try {
-      cachedNodes = await loadAllNodes(vaultRoot);
-      cachedIndex = indexById(cachedNodes);
-      const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
+      cachedGraph = await assembleLinearGraph();
+      const payload = buildGraphPayload(cachedGraph);
       broadcastUpdate(payload);
       const elapsed = Date.now() - start;
       if (elapsed > 200) {
@@ -156,21 +74,8 @@ function setupWatcher(vaultRoot: string): void {
     }
   };
 
-  const onChange = () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(rebuild, 300);
-  };
-
-  try {
-    watcher = fs.watch(vaultRoot, { recursive: true }, (_event, filename) => {
-      if (!filename || !filename.endsWith(".md")) return;
-      onChange();
-    });
-  } catch {
-    // Fallback: poll for changes every 2 seconds (recursive watch unavailable on this platform)
-    console.log("[graphpilot] recursive watch unavailable, using polling fallback");
-    setInterval(rebuild, 2000);
-  }
+  // Linear is the source of truth, so vault file events cannot trigger graph updates.
+  refreshTimer = setInterval(rebuild, 2000);
 }
 
 function broadcastUpdate(payload: GraphPayload): void {
@@ -195,6 +100,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
 
   // Initial load
   cachedVaultRoot = vaultRoot;
+  cachedGraph = await assembleLinearGraph();
   cachedNodes = await loadAllNodes(vaultRoot);
   cachedIndex = indexById(cachedNodes);
 
@@ -215,7 +121,7 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   // ── REST API ─────────────────────────────────────────────────
 
   app.get("/api/graph", (_req, res) => {
-    const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
+    const payload = buildGraphPayload(cachedGraph);
     res.json(payload);
   });
 
@@ -228,26 +134,12 @@ export async function startServer(opts: ServeOpts): Promise<void> {
   });
 
   app.get("/api/node/:id", (req, res) => {
-    const node = cachedIndex.get(req.params.id);
+    const node = cachedGraph.nodes.find((candidate) => candidate.id === req.params.id);
     if (!node) {
       res.status(404).json({ error: "Node not found" });
       return;
     }
-    res.json({
-      id: node.meta.id,
-      type: node.meta.type,
-      status: node.meta.status,
-      project: node.meta.project,
-      parent: node.meta.parent,
-      "depends-on": node.meta["depends-on"],
-      blocks: node.meta.blocks,
-      session: node.meta.session,
-      artifacts: node.meta.artifacts,
-      created: node.meta.created,
-      updated: node.meta.updated,
-      body: node.body,
-      filepath: node.filepath,
-    });
+    res.json(node);
   });
 
   app.post("/api/launch/:id", (req, res) => {
@@ -518,12 +410,12 @@ export async function startServer(opts: ServeOpts): Promise<void> {
     });
 
     // Send current graph state on connect
-    const payload = buildGraphPayload(cachedNodes, cachedVaultRoot);
+    const payload = buildGraphPayload(cachedGraph);
     ws.send(JSON.stringify({ type: "graph-update", ...payload }));
   });
 
   // File watching
-  setupWatcher(vaultRoot);
+  setupWatcher();
   reaper = setInterval(reapStaleWindows, 2 * 60 * 1000);
 
   return new Promise<void>((resolve) => {
@@ -541,9 +433,9 @@ export async function stopServer(): Promise<void> {
     clearInterval(reaper);
     reaper = null;
   }
-  if (watcher) {
-    watcher.close();
-    watcher = null;
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
   }
   if (wss) {
     for (const client of wss.clients) {

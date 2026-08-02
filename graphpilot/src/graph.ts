@@ -1,4 +1,5 @@
 import { type GraphNode, type NodeStatus, type NodeType, refToId } from "./schema.js";
+import type { LinearGraph } from "./linearGraph.js";
 
 /**
  * Generate a Mermaid flowchart from the node graph.
@@ -630,6 +631,54 @@ export function toOverviewCanvas(nodes: GraphNode[], vaultRoot: string): string 
 
   const canvas: CanvasData = { nodes: allCanvasNodes, edges };
   return JSON.stringify(canvas, null, 2);
+}
+
+/** Generate a Canvas directly from Linear issues and their relations. */
+export function toLinearCanvas(graph: LinearGraph): string {
+  const canvasNodes: CanvasNode[] = graph.nodes.map((node, index) => {
+    const x = (index % 3) * 380;
+    const y = Math.floor(index / 3) * 220;
+    const tasks = node.dispatchTasks.map((task) => `${task.id} (${task.status})`).join(", ");
+    return {
+      id: `node-${node.id}`,
+      type: "text",
+      x,
+      y,
+      width: 340,
+      height: 160,
+      text: [
+        `${node.id}: ${node.title}`,
+        `${node.status}${node.project ? ` · ${node.project}` : ""}`,
+        node.assignee ? `Assignee: ${node.assignee.name}` : "Unassigned",
+        tasks ? `Dispatch: ${tasks}` : "Dispatch: none",
+      ].join("\n"),
+    };
+  });
+  const nodeIds = new Set(canvasNodes.map((node) => node.id));
+  const edges: CanvasEdge[] = graph.edges
+    .filter((edge) => nodeIds.has(`node-${edge.source}`) && nodeIds.has(`node-${edge.target}`))
+    .map((edge) => ({
+      id: `edge-${edge.source}-${edge.target}-${edge.type}`,
+      fromNode: `node-${edge.source}`,
+      fromSide: edge.type === "parent" ? "bottom" : "right",
+      toNode: `node-${edge.target}`,
+      toSide: edge.type === "parent" ? "top" : "left",
+      label: edge.type,
+      color: edge.type === "blocks" ? "1" : undefined,
+    }));
+  return JSON.stringify({ nodes: canvasNodes, edges }, null, 2);
+}
+
+/** Generate the terminal graph view from the same Linear-backed data. */
+export function toLinearMermaid(graph: LinearGraph): string {
+  const lines = ["graph TD"];
+  for (const node of graph.nodes) {
+    lines.push(`    ${sanitizeId(node.id)}["${node.id}: ${node.title}<br/><i>${node.status}</i>"]`);
+  }
+  for (const edge of graph.edges) {
+    lines.push(`    ${sanitizeId(edge.source)} ${edge.type === "parent" ? "-.->" : "-->"} ${sanitizeId(edge.target)}`);
+  }
+  return lines.join("\n");
 }
 
 // --- Helpers ---
