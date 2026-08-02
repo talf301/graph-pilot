@@ -5,6 +5,7 @@ import path from "node:path";
 export interface Correlation {
   taskId: string;
   created: string;
+  writtenBack?: boolean;
 }
 
 export type Correlations = Record<string, Correlation[]>;
@@ -30,6 +31,14 @@ export class CorrelationStore {
 
   getAllCorrelations(): Correlations {
     return this.read();
+  }
+
+  markTaskWrittenBack(issueId: string, taskId: string): void {
+    const data = this.read();
+    const correlation = data[issueId]?.find((entry) => entry.taskId === taskId);
+    if (!correlation) throw new Error(`No correlation found for ${issueId}/${taskId}`);
+    correlation.writtenBack = true;
+    this.write(data);
   }
 
   private read(): Correlations {

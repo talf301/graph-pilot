@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assembleLinearGraph } from "./linearGraph.js";
+import { assembleLinearGraph, writeBackCompletedTasks } from "./linearGraph.js";
 
 test("assembles Linear parent and blocking relations", async () => {
   const graph = await assembleLinearGraph(
@@ -28,4 +28,24 @@ test("assembles Linear parent and blocking relations", async () => {
     { source: "RES-1", target: "RES-2", type: "parent" },
     { source: "RES-2", target: "RES-1", type: "blocks" },
   ]);
+});
+
+test("writes back each completed correlated task once", async () => {
+  const comments: string[] = [];
+  const written = new Set<string>();
+  const store = {
+    getAllCorrelations: () => ({ issue: [{ taskId: "dt-1", created: "now" }] }),
+    markTaskWrittenBack: (_issueId: string, taskId: string) => written.add(taskId),
+  };
+  const client = { addIssueComment: async (id: string, body: string) => comments.push(`${id}:${body}`) };
+  const readTask = async () => ({ id: "dt-1", status: "done", title: "Ship it" });
+
+  await writeBackCompletedTasks(client as never, store as never, readTask);
+  await writeBackCompletedTasks(client as never, {
+    ...store,
+    getAllCorrelations: () => ({ issue: [{ taskId: "dt-1", created: "now", writtenBack: true }] }),
+  } as never, readTask);
+
+  assert.deepEqual(comments, ["issue:Dispatch task dt-1 completed: Ship it"]);
+  assert.deepEqual([...written], ["dt-1"]);
 });
