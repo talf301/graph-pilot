@@ -101,7 +101,7 @@ function badStringList(value: unknown, name: string): string | null {
  * Returns a human-readable problem, or null if the node is usable.
  *
  * Deliberately lenient: missing optional fields are filled in, unknown keys
- * (Obsidian's `tags`, the dashboard's `severity`) are left alone. Only wrong
+ * unknown keys are left alone. Only wrong
  * *types* and unknown enum members are rejected.
  */
 export function validateFrontmatter(
@@ -376,10 +376,9 @@ export function findReady(
   index: Map<string, GraphNode>
 ): GraphNode[] {
   // Statuses that mean "not up for grabs": finished, in flight, or not yet
-  // scoped. `open` (bug reported, unstarted) and `planned` are fair game.
+  // scoped.
   const notActionable: NodeStatus[] = [
     "done",
-    "fixed",
     "in-progress",
     "dispatching",
     "designing",
