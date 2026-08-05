@@ -9,6 +9,7 @@
     status: new Set(['all']),
     type: new Set(['all']),
     project: new Set(['all']),
+    dispatch: new Set(['all']),
   };
   let currentLayout = 'cose-bilkent';
 
@@ -16,6 +17,7 @@
   const statusContainer = document.querySelector('#status-filters .pill-container');
   const typeContainer = document.querySelector('#type-filters .pill-container');
   const projectContainer = document.querySelector('#project-filters .pill-container');
+  const dispatchContainer = document.querySelector('#dispatch-filters .pill-container');
   const layoutToggle = document.querySelector('.layout-toggle');
   const designBtn = document.getElementById('btn-design-session');
 
@@ -91,6 +93,7 @@
   function containerFor(group) {
     if (group === 'status') return statusContainer;
     if (group === 'type') return typeContainer;
+    if (group === 'dispatch') return dispatchContainer;
     return projectContainer;
   }
 
@@ -103,7 +106,8 @@
       cy.nodes().forEach(function (node) {
         var show = matchesFilter('status', node.data('status'))
           && matchesFilter('type', node.data('type'))
-          && matchesFilter('project', node.data('project'));
+          && matchesFilter('project', node.data('project'))
+          && matchesFilter('dispatch', node.data('dispatchState'));
         if (show) {
           node.style('display', 'element');
         } else {
@@ -191,6 +195,7 @@
       buildPills(statusContainer, 'status', statuses);
       buildPills(typeContainer, 'type', types);
       buildPills(projectContainer, 'project', projects);
+      syncPillClasses(dispatchContainer, 'dispatch');
       applyFilters();
     },
 

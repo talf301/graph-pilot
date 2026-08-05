@@ -9,6 +9,8 @@ export interface DispatchTask {
   id: string;
   status: string;
   title?: string;
+  branch?: string;
+  pr?: string;
   raw?: Record<string, unknown>;
 }
 
@@ -41,10 +43,11 @@ export interface LinearGraphEdge {
 export interface LinearGraph {
   nodes: LinearGraphNode[];
   edges: LinearGraphEdge[];
+  untrackedTasks: DispatchTask[];
 }
 
 interface DtShowResult {
-  task?: { id?: string; title?: string; status?: string; [key: string]: unknown };
+  task?: { id?: string; title?: string; status?: string; branch?: string; pr?: string; pullRequest?: string; [key: string]: unknown };
 }
 
 async function readDispatchTask(correlation: Correlation): Promise<DispatchTask> {
@@ -56,6 +59,8 @@ async function readDispatchTask(correlation: Correlation): Promise<DispatchTask>
       id: task.id ?? correlation.taskId,
       status: task.status ?? "unknown",
       title: task.title,
+      branch: task.branch,
+      pr: task.pr ?? task.pullRequest,
       raw: task,
     };
   } catch {
@@ -92,6 +97,13 @@ export async function assembleLinearGraph(
 ): Promise<LinearGraph> {
   const { issues } = await client.fetchWorkspace();
   const edges = relationEdges(issues);
+  const issueIds = new Set(issues.map((issue) => issue.id));
+  const correlations = typeof store.getAllCorrelations === "function" ? store.getAllCorrelations() : {};
+  const untrackedTasks = await Promise.all(
+    Object.entries(correlations)
+      .filter(([issueId]) => !issueIds.has(issueId))
+      .flatMap(([, taskList]) => taskList.map(readDispatchTask)),
+  );
   const taskLists = await Promise.all(issues.map(async (issue) => [
     issue.id,
     await Promise.all(store.getTasksForIssue(issue.id).map(readDispatchTask)),
@@ -126,5 +138,6 @@ export async function assembleLinearGraph(
       dispatchTasks: tasks.get(issue.id) ?? [],
     })),
     edges,
+    untrackedTasks,
   };
 }
