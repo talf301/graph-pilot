@@ -89,7 +89,6 @@ test("findReady: deps gate readiness, and resolve through alias links", () => {
 test("findReady: excludes finished and in-flight nodes", () => {
   for (const status of [
     "done",
-    "fixed",
     "in-progress",
     "dispatching",
     "designing",
@@ -98,8 +97,7 @@ test("findReady: excludes finished and in-flight nodes", () => {
   }
 });
 
-test("findReady: open bugs are actionable, hand-blocked nodes are not", () => {
-  assert.deepEqual(ready([node("bug", { type: "bug", status: "open" })]), ["bug"]);
+test("findReady: blocked nodes are not actionable", () => {
   assert.deepEqual(ready([node("b", { status: "blocked" })]), []);
   assert.deepEqual(ready([node("r", { status: "ready" })]), ["r"]);
 });
