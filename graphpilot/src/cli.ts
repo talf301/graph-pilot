@@ -18,7 +18,8 @@ import {
   createNode,
 } from "./vault.js";
 import { assembleContext } from "./context.js";
-import { toMermaid, toAsciiTree, toCanvas, toOverviewCanvas } from "./graph.js";
+import { toMermaid, toAsciiTree, toCanvas, toOverviewCanvas, toLinearCanvas, toLinearMermaid } from "./graph.js";
+import { assembleLinearGraph } from "./linearGraph.js";
 import { type NodeType, type GpConfig, DEFAULT_CONFIG, parseWikilink } from "./schema.js";
 import { gpDispatch, gpSyncChild, gpCollapse } from "./dispatch.js";
 import { startServer, stopServer } from "./serve.js";
@@ -271,18 +272,14 @@ async function cmdStatus(args: string[]) {
 }
 
 async function cmdGraph(args: string[]) {
-  const { vaultRoot } = requireConfig();
   const { flags } = parseFlags(args);
   const projectFilter = flags.project?.[0];
   const mermaid = args.includes("--mermaid");
-
-  const nodes = await loadAllNodes(vaultRoot, { project: projectFilter });
-
-  if (mermaid) {
-    console.log(toMermaid(nodes));
-  } else {
-    console.log(toAsciiTree(nodes));
-  }
+  const graph = await assembleLinearGraph();
+  const filtered = projectFilter
+    ? { ...graph, nodes: graph.nodes.filter((node) => node.project === projectFilter), edges: graph.edges.filter((edge) => graph.nodes.some((node) => node.id === edge.source && node.project === projectFilter) && graph.nodes.some((node) => node.id === edge.target && node.project === projectFilter)) }
+    : graph;
+  console.log(mermaid ? toLinearMermaid(filtered) : filtered.nodes.map((node) => `${node.status === "done" ? "●" : "○"} ${node.id} (${node.status})`).join("\n"));
 }
 
 async function cmdCanvas(args: string[]) {
@@ -292,17 +289,17 @@ async function cmdCanvas(args: string[]) {
   const isSummary = args.includes("--summary");
   const projectFilter = flags.project?.[0];
 
-  const nodes = await loadAllNodes(vaultRoot, { project: isAll ? undefined : projectFilter });
+  const graph = await assembleLinearGraph();
 
   if (isAll) {
-    const canvasJson = toOverviewCanvas(nodes, vaultRoot);
+    const canvasJson = toLinearCanvas(graph);
     const outPath = path.join(vaultRoot, "overview.canvas");
     fs.writeFileSync(outPath, canvasJson, "utf-8");
     ok(`Generated overview canvas: ${path.relative(vaultRoot, outPath)}`);
   } else {
     // Resolve project
     let project = projectFilter;
-    const projectNames = Object.keys(config.projects);
+    const projectNames = [...new Set(graph.nodes.map((node) => node.project).filter((project): project is string => Boolean(project)))];
     if (!project) {
       if (projectNames.length === 1) {
         project = projectNames[0];
@@ -312,12 +309,12 @@ async function cmdCanvas(args: string[]) {
         die(`Multiple projects exist. Specify with --project: ${projectNames.join(", ")}`);
       }
     }
-    if (!config.projects[project]) {
+    if (!projectNames.includes(project)) {
       die(`Unknown project: ${project}`);
     }
 
-    const projectNodes = nodes.filter(n => n.meta.project === project);
-    const canvasJson = toCanvas(projectNodes, vaultRoot);
+    const projectGraph = { ...graph, nodes: graph.nodes.filter((node) => node.project === project), edges: graph.edges.filter((edge) => graph.nodes.some((node) => node.id === edge.source && node.project === project) && graph.nodes.some((node) => node.id === edge.target && node.project === project)) };
+    const canvasJson = toLinearCanvas(projectGraph);
     const suffix = isSummary ? "-summary" : "";
     const outPath = path.join(vaultRoot, config.root, project, `${project}${suffix}.canvas`);
     fs.writeFileSync(outPath, canvasJson, "utf-8");
