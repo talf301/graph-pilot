@@ -77,6 +77,12 @@ const QUERY = `
   }
 `;
 
+const COMMENT_MUTATION = `
+  mutation AddIssueComment($issueId: String!, $body: String!) {
+    commentCreate(input: { issueId: $issueId, body: $body }) { success }
+  }
+`;
+
 export class LinearClient {
   private readonly apiKey: string;
   private readonly endpoint: string;
@@ -122,6 +128,18 @@ export class LinearClient {
 
   async fetchProjects(): Promise<LinearProject[]> {
     return (await this.fetchWorkspace()).projects;
+  }
+
+  async addIssueComment(issueId: string, body: string): Promise<void> {
+    const response = await fetch(this.endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: this.apiKey },
+      body: JSON.stringify({ query: COMMENT_MUTATION, variables: { issueId, body } }),
+    });
+    if (!response.ok) throw new Error(`Linear API request failed (${response.status})`);
+    const result = (await response.json()) as { data?: { commentCreate?: { success?: boolean } }; errors?: { message: string }[] };
+    if (result.errors?.length) throw new Error(`Linear API: ${result.errors.map((e) => e.message).join("; ")}`);
+    if (!result.data?.commentCreate?.success) throw new Error("Linear API failed to add issue comment");
   }
 }
 

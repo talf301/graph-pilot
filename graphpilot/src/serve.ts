@@ -11,7 +11,9 @@ import { ensureSession, spawnWindow, checkTmux, listWindows, windowProcessExited
 import type { GraphNode } from "./schema.js";
 import type { GpConfig } from "./schema.js";
 import { refToId } from "./schema.js";
-import { assembleLinearGraph, type LinearGraph } from "./linearGraph.js";
+import { assembleLinearGraph, writeBackCompletedTasks, type LinearGraph } from "./linearGraph.js";
+import { CorrelationStore } from "./correlations.js";
+import { LinearClient } from "./linear.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -59,10 +61,13 @@ function buildGraphPayload(graph: LinearGraph): GraphPayload {
 // ── File watching ────────────────────────────────────────────────
 
 function setupWatcher(): void {
+  const client = new LinearClient();
+  const store = new CorrelationStore();
   const rebuild = async () => {
     const start = Date.now();
     try {
-      cachedGraph = await assembleLinearGraph();
+      cachedGraph = await assembleLinearGraph(client, store);
+      await writeBackCompletedTasks(client, store);
       const payload = buildGraphPayload(cachedGraph);
       broadcastUpdate(payload);
       const elapsed = Date.now() - start;

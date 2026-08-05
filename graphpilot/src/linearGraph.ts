@@ -128,3 +128,23 @@ export async function assembleLinearGraph(
     edges,
   };
 }
+
+export async function writeBackCompletedTasks(
+  client = new LinearClient(),
+  store = new CorrelationStore(),
+  readTask: (correlation: Correlation) => Promise<DispatchTask> = readDispatchTask,
+): Promise<void> {
+  const correlations = store.getAllCorrelations();
+  for (const [issueId, entries] of Object.entries(correlations)) {
+    for (const correlation of entries) {
+      if (correlation.writtenBack) continue;
+      const task = await readTask(correlation);
+      if (task.status !== "done") continue;
+      await client.addIssueComment(
+        issueId,
+        `Dispatch task ${task.id} completed${task.title ? `: ${task.title}` : "."}`,
+      );
+      store.markTaskWrittenBack(issueId, task.id);
+    }
+  }
+}
